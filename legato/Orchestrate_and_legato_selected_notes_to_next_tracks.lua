@@ -559,8 +559,10 @@ end
 -- REAPER GLUE
 --=============================================================================
 
+-- Bail-outs hand their message back to main(), which shows it once the undo
+-- block is closed, rather than popping a dialog mid-run.
 local function fail(msg)
-  reaper.ShowMessageBox(msg, SCRIPT_TITLE, 0)
+  return nil, msg
 end
 
 -- PPQ ticks per quarter note for a take, derived rather than assumed.
@@ -761,7 +763,9 @@ local function leadKeyswitches(keyswitches, lead, minStart)
   end
 end
 
-local function main()
+-- The whole run, top to bottom.  Returns the name for the undo point, or nil
+-- plus a message to show when it bailed out without changing anything.
+local function run()
   local editor = reaper.MIDIEditor_GetActive()
   if not editor then
     return fail("No MIDI editor is open.\n\nRun this from the MIDI editor, " ..
@@ -878,19 +882,30 @@ local function main()
   local ccs = readCCs(srcTake)
   local sysex = readTextSysex(srcTake)
 
-  reaper.Undo_BeginBlock()
-  reaper.PreventUIRefresh(1)
-
   for slot = 1, slotCount do
     writeToTake(srcTake, targets[slot], buckets[slot], ccs, sysex)
   end
 
+  return string.format("%s (%d part%s, %d legato note%s)", SCRIPT_TITLE,
+                       slotCount, slotCount == 1 and "" or "s",
+                       legatoCount, legatoCount == 1 and "" or "s")
+end
+
+-- Everything the script does happens inside one undo block, so a single
+-- Ctrl/Cmd+Z puts the project back exactly as it was before the run.  REAPER
+-- drops a block that changed nothing, so the bail-outs cost no undo history.
+local function main()
+  reaper.Undo_BeginBlock()
+  reaper.PreventUIRefresh(1)
+
+  local ok, undoName, message = pcall(run)
+
   reaper.PreventUIRefresh(-1)
-  reaper.Undo_EndBlock(
-    string.format("%s (%d part%s, %d legato note%s)", SCRIPT_TITLE,
-                  slotCount, slotCount == 1 and "" or "s",
-                  legatoCount, legatoCount == 1 and "" or "s"), -1)
+  reaper.Undo_EndBlock(ok and undoName or SCRIPT_TITLE, -1)
   reaper.UpdateArrange()
+
+  if not ok then error(undoName, 0) end
+  if message then reaper.ShowMessageBox(message, SCRIPT_TITLE, 0) end
 end
 
 -- Only run when hosted by REAPER; loading this file as a plain Lua module
