@@ -152,11 +152,15 @@ do
   check("over A: group 3 takes the key's 7th",
         { a[9], a[10], a[11], a[12] }, ps("A4 C#5 G5 A5"))
 
+  -- The figure climbs B-D-F#-B, one chord tone at a time.  Over A-B-E-G it
+  -- climbs the same way through that chord's own notes: the top note is the
+  -- chord's G, not an A that would leap over it.  The neighbour A (a step
+  -- below the top B) becomes the step below the top G.
   local s = M.realize(D_MAJOR, pattern, ps("A4 B4 E5 G5"))
-  check("over Asus2(7): follows the chord's spelling",
-        { s[1], s[2], s[3], s[4] }, ps("A4 B4 E5 A5"))
-  check("over Asus2(7): 7th is the chord's G",
-        { s[9], s[10], s[11], s[12] }, ps("A4 B4 G5 A5"))
+  check("over Asus2(7): climbs the chord's own notes",
+        { s[1], s[2], s[3], s[4] }, ps("A4 B4 E5 G5"))
+  check("over Asus2(7): neighbour stays a step below the top",
+        { s[9], s[10], s[11], s[12] }, ps("A4 B4 F#5 G5"))
 end
 
 --=============================================================================
@@ -166,10 +170,9 @@ print("-- anchoring and inversions")
 do
   local pattern = M.analyzePattern(C_MAJOR, figure("C4 E4 G4 C5", 0.25))
 
-  local g, rot = M.realize(C_MAJOR, pattern, ps("G3 B3 D4"))
+  local g = M.realize(C_MAJOR, pattern, ps("G3 B3 D4"))
   -- G3 is 5 below C4 and G4 is 7 above: too far.  B3 (3rd of G) is 1 away.
   check("G chord inverts to start on its third", g, ps("B3 D4 G4 B4"))
-  check("G chord inversion", rot, 1)
 
   g = M.realize(C_MAJOR, pattern, ps("G3 B3 D4"), { allowInversions = false })
   check("inversions off: root position, nearest octave", g, ps("G3 B3 D4 G4"))
@@ -187,13 +190,89 @@ do
 end
 
 do
-  -- A neighbour note stays a neighbour of the same chord tone when inverted.
-  check("invert root up a place", M.invertDegree(0, 1), 2)
-  check("invert octave root up a place", M.invertDegree(7, 1), 9)
-  check("invert fifth up a place", M.invertDegree(4, 1), 7)
-  check("invert 7th (neighbour of the octave)", M.invertDegree(6, 1), 8)
-  check("invert down a place", M.invertDegree(0, -1), -3)
-  check("invert 2nd (passing from root)", M.invertDegree(1, 1), 3)
+  -- Inverted, a neighbour still neighbours the chord tone it decorates.
+  local pattern = M.analyzePattern(C_MAJOR, figure("C4 B3 C4 E4 G4", 0.25))
+  check("inverted: neighbour follows its chord tone",
+        M.realize(C_MAJOR, pattern, ps("G3 B3 D4")), ps("B3 A3 B3 D4 G4"))
+end
+
+--=============================================================================
+print("-- chords with more notes")
+--=============================================================================
+
+do
+  -- A figure climbing one chord tone at a time climbs one chord tone at a
+  -- time over any chord, taking in whatever it plays: 7ths, 6ths, 9ths,
+  -- 11ths, sus notes, in any voicing or inversion.
+  local pattern = M.analyzePattern(D_MAJOR, figure("B4 D5 F#5 B5", 0.25))
+  check("over A7", M.realize(D_MAJOR, pattern, ps("A3 C#4 E4 G4")),
+        ps("A4 C#5 E5 G5"))
+  check("over A7/G, five notes", M.realize(D_MAJOR, pattern,
+        ps("G2 A3 C#4 E4 A4")), ps("A4 C#5 E5 G5"))
+  check("over D6", M.realize(D_MAJOR, pattern, ps("D3 F#3 A3 B3")),
+        ps("B4 D5 F#5 A5"))
+  check("over Em7, five notes", M.realize(D_MAJOR, pattern,
+        ps("E2 E3 G3 B3 D4")), ps("B4 D5 E5 G5"))
+  -- Doublings change nothing: a five-note triad is still a triad.
+  check("over A/C#, five notes", M.realize(D_MAJOR, pattern,
+        ps("C#3 A3 E4 A4 C#5")), ps("A4 C#5 E5 A5"))
+end
+
+do
+  local function tonesSkipped(r, tones)
+    local worst = 0
+    for i = 2, #r do
+      local lo, hi = math.min(r[i - 1], r[i]), math.max(r[i - 1], r[i])
+      local n = 0
+      for q = lo + 1, hi - 1 do if tones[q % 12] then n = n + 1 end end
+      if n > worst then worst = n end
+    end
+    return worst
+  end
+  -- Up, down, up-down and Alberti figures moving to adjacent chord tones
+  -- never leap over a chord tone, whatever the chord.
+  local chords = {
+    ps("A3 C#4 E4 G4"), ps("G2 A3 C#4 E4 A4"), ps("A4 B4 E5 G5"),
+    ps("A3 C#4 E4 G4 B4"), ps("B2 G3 A3 D4"), ps("E3 A3 B3 D4 G4"),
+    ps("D3 F#3 A3 C#4 E4"), ps("F#2 F#3 A3 C#4 E4"), ps("C#3 B3 E4 G4"),
+  }
+  local shapes = { "B4 D5 F#5 B5", "B5 F#5 D5 B4", "B4 D5 F#5 B5 F#5 D5",
+                   "B4 F#5 D5 F#5" }
+  local worst = 0
+  for _, shape in ipairs(shapes) do
+    local pattern = M.analyzePattern(D_MAJOR, figure(shape, 0.25))
+    for _, chord in ipairs(chords) do
+      local tones = {}
+      for _, q in ipairs(chord) do tones[q % 12] = true end
+      local w = tonesSkipped(M.realize(D_MAJOR, pattern, chord), tones)
+      if w > worst then worst = w end
+    end
+  end
+  -- (The Alberti figure's B-F# leaps over D, so one skip is its own shape.)
+  check("adjacent-tone figures never leap further than the figure", worst, 1)
+end
+
+do
+  -- Repeated identical groups come out identical, every time.
+  local pattern = M.analyzePattern(D_MAJOR, figure(
+    "B4 D5 F#5 B5  B4 D5 F#5 B5  B4 D5 F#5 B5", 0.25))
+  for _, chord in ipairs({ ps("A3 C#4 E4 G4"), ps("D4 G4 A4"),
+                           ps("E3 A3 B3 D4 G4") }) do
+    local r = M.realize(D_MAJOR, pattern, chord)
+    check("groups identical", { r[1], r[2], r[3], r[4] }, { r[9], r[10], r[11], r[12] })
+  end
+end
+
+do
+  -- A rolled or humanized chord (bass a little early) is one chord, not a
+  -- one-note chord followed by the rest.
+  local chords = M.findChords({
+    note(4, 4, p("A2"), 1), note(4.06, 3.94, p("A3"), 2),
+    note(4.06, 3.94, p("C#4"), 3), note(4.1, 3.9, p("E4"), 4),
+  }, 0.25 * PPQ)
+  check("rolled chord is one chord", #chords, 1)
+  check("rolled chord has all its notes", #chords[1].notes, 4)
+  check("rolled chord starts with its first note", chords[1].startPos, 4 * PPQ)
 end
 
 --=============================================================================
@@ -252,16 +331,19 @@ do
   -- pass, the neighbour still neighbours.
   local r = M.realize(C_MAJOR, pattern, ps("F3 A3 C4"))
   -- (Inverted onto C: the falling third E-D-C became the falling fourth
-  -- F-?-C, and the passing note keeps its step from the F.)
+  -- F-?-C, and the passing note leans on the C it resolves to.)
   check("over F: decorations kept", r, ps(
-    "C4 D4 F4 A4  B4 A4 F4 E4  C4 F4 G4 A4  C5 B4 A4 F4"))
+    "C4 D4 F4 A4  B4 A4 F4 D4  C4 F4 G4 A4  C5 B4 A4 F4"))
   check("over F: at most the figure's share outside", outside(C_MAJOR, r,
         ps("F3 A3 C4")) <= 5, true)
 
-  -- A chord that plays an extension absorbs the decorations that land on it.
+  -- Over a chord with a 7th, the figure's top note (its octave, one chord
+  -- tone above the 5th) is the chord's 7th, the next chord tone up; the
+  -- decorations stay within the figure's own share.
   r = M.realize(C_MAJOR, pattern, ps("D3 A3 C4 F4"))
-  check("over Dm7: the passing C is the chord's own 7th",
-        outside(C_MAJOR, r, ps("D3 A3 C4 F4")), 4)
+  check("over Dm7: top note is the chord's 7th", r[13], p("C5"))
+  check("over Dm7: at most the figure's share outside",
+        outside(C_MAJOR, r, ps("D3 A3 C4 F4")) <= 5, true)
 
   r = M.realize(C_MAJOR, pattern, ps("F3 A3 C4"), { maxNctShare = 0 })
   check("budget 0: every note a chord tone",
@@ -352,29 +434,24 @@ do
   local pattern = M.analyzePattern(C_MAJOR, figure("C4 E4 G4 E4", 0.25))
   local tones = { [0] = true, [4] = true, [7] = true }
   -- A line that already goes the right way is left exactly as it is.
-  check("fix: right shape untouched",
-        M.fixDirections(pattern, ps("C4 E4 G4 E4"), tones, C_MAJOR),
+  check("order: right shape untouched",
+        M.keepOrder(pattern, ps("C4 E4 G4 E4"), tones, tones, C_MAJOR),
         ps("C4 E4 G4 E4"))
-  -- A flattened step is repaired by moving one note, onto another chord tone.
-  local fixed = M.fixDirections(pattern, ps("C4 E4 E4 C4"), tones, C_MAJOR)
-  check("fix: directions restored", directions(fixed), { "up", "up", "down" })
-  local moved = 0
-  for i = 1, 4 do if fixed[i] ~= ps("C4 E4 E4 C4")[i] then moved = moved + 1 end end
-  check("fix: one note moved", moved, 1)
-  local onChord = true
-  for i = 1, #fixed do if not tones[fixed[i] % 12] then onChord = false end end
-  check("fix: chord tones stay chord tones", onChord, true)
+  -- A flattened step is repaired by moving one figure note, onto the next
+  -- chord tone.
+  local fixed = M.keepOrder(pattern, ps("C4 E4 E4 E4"), tones, tones, C_MAJOR)
+  check("order: flattened step repaired", fixed, ps("C4 E4 G4 E4"))
+  -- Every occurrence of a figure note maps to the same note.
+  fixed = M.keepOrder(pattern, ps("C4 E4 G4 F4"), tones, tones, C_MAJOR)
+  check("order: same figure note, same output", fixed[2], fixed[4])
 end
 
 do
-  -- The repair keeps the figure's step sizes.  Here the mapping turns the
-  -- second step around (G4 B3 D4); fixing it by dropping D4 to G3 would then
-  -- leap an octave back up to G4.  The fix must move by adjacent chord tones,
-  -- as the figure does.
+  -- Over the figure's own chord, a figure comes back unchanged: here G and D
+  -- are chord tones of G and E is a neighbour, so nothing moves.
   local pattern = M.analyzePattern(C_MAJOR, figure("G4 E4 D4 E4 D4 E4", 0.25))
   local r = M.realize(C_MAJOR, pattern, ps("G3 B3 D4"))
-  check("repair keeps steps to adjacent chord tones", r,
-        ps("B4 G4 D4 G4 D4 G4"))
+  check("own chord: figure unchanged", r, ps("G4 E4 D4 E4 D4 E4"))
 end
 
 do

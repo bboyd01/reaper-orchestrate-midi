@@ -5,35 +5,35 @@
 
   Select a figure in the active MIDI editor take (an arpeggio, an Alberti bass,
   a broken-chord riff: anything played over one chord).  The script reads the
-  figure as scale degrees relative to the chord it outlines, then overwrites
-  every chord that follows it in the take with the same figure, rebuilt on that
-  chord: same rhythm, same velocities, same contour, new pitches.
+  figure's chord tones and decorations, then overwrites every chord that
+  follows it in the take with the same figure, rebuilt on that chord: same
+  rhythm, same velocities, same contour, new pitches.
 
-    figure   B4 D5 F#5 B5 | B4 D5 A5 B5        (B minor, 7th as a neighbour)
+    figure   B4 D5 F#5 B5 | B4 D5 A5 B5        (B minor, A as a neighbour)
     chords   A4 C#5 E5 A5 | A4 B4 E5 G5
     result   A4 C#5 E5 A5 | A4 C#5 G5 A5       over the A chord
-             A4 B4  E5 A5 | A4 B4  G5 A5       over the Asus2(add7) chord
+             A4 B4  E5 G5 | A4 B4 F#5 G5       over the A-B-E-G chord
 
   - The chords are the unselected block chords after the figure: notes of a
     quarter note or longer.  Shorter unselected notes (8ths and smaller) are
     ignored and left alone.
   - The figure is split into chord tones and non-chord tones (passing notes,
-    neighbours, leaps).  Chord tones always land on the new chord's tones;
-    non-chord tones keep their scale-step relation to the chord tones around
-    them, so a passing note still passes and a neighbour still neighbours.
+    neighbours, leaps).  Chord tones climb the new chord's own notes (7ths,
+    6ths, 9ths included) one rung for each rung they climb in the figure;
+    non-chord tones keep their key steps from the chord tone they lean on,
+    so a passing note still passes and a neighbour still neighbours.
+  - The same figure note always gives the same note, and every step goes up
+    or down as the figure's does.
   - No chord gets a larger share of non-chord tones than the figure itself
     had, and never more than MAX_NCT_SHARE.  When a chord would, the
     non-chord tones that can become chord tones with the least disturbance to
     the line turn into them, leaps before neighbours before passing notes.
 
-  - The key comes from the MIDI editor's Key Snap setting.  Scale degrees the
-    target chord does not spell are filled in from that key, so the figure
-    stays in the key signature.
-  - The target chord's own notes win over the key: a chromatic chord, or a
-    sus chord with no third, is followed as written.
-  - Every figure starts close to the first note of the selection.  If the
+  - The key comes from the MIDI editor's Key Snap setting; decorations move
+    in key steps, so the figure stays in the key signature.
+  - Every figure starts close to the selection's first chord tone.  If the
     chord's own version of that note would jump more than MAX_ANCHOR_JUMP
-    semitones, the figure is rebuilt on the inversion that starts nearest.
+    semitones, the figure starts on the chord's nearest note instead.
   - A chord longer than the figure gets the figure repeated; a shorter one
     cuts it off.
 
@@ -81,10 +81,16 @@ local CONFIG = {
   -- 11 == B-1 in REAPER's default C-1 = 0 naming, i.e. everything below C0.
   KEYSWITCH_MAX_PITCH = 11,
 
-  -- Onset clustering tolerance, in quarter notes.  Chord notes starting within
-  -- this window of one another count as one chord, so humanized input still
-  -- reads as block chords.  0.03 QN is about 15 ms at 120 bpm.
+  -- Onset clustering tolerance for the figure, in quarter notes.  0.03 QN is
+  -- about 15 ms at 120 bpm.
   ONSET_TOLERANCE_QN = 0.03,
+
+  -- Chord notes starting within this many quarter notes of one another are
+  -- one chord, so a humanized or rolled chord (bass a little early, say) is
+  -- not split into a one-note chord plus the rest.  0.25 == a 16th note;
+  -- chords are at least a quarter note long, so real changes are further
+  -- apart than this.
+  CHORD_ONSET_TOLERANCE_QN = 0.25,
 
   -- When a time selection is set and ends after the figure, only chords that
   -- start inside it are replaced, and the last one is cut off at its end.
@@ -315,14 +321,17 @@ function M.analyzeChord(scale, pitches, weights)
   return { rootPc = rootPc, rootIdx = rootIdx, stepPc = stepPc, pcs = pcs }
 end
 
--- The chord tones of a block chord: everything it plays, plus its root, third
--- and fifth as targetStepPcs resolves them, so a bare fifth or a single note
--- still implies a triad from the key.  Returns a set { [pc] = true }.
+-- The chord tones of a block chord: every pitch class it plays.  A chord of
+-- fewer than three pitch classes (a bare fifth, a single note) also gets its
+-- root, third and fifth from targetStepPcs, so it still implies a triad.
+-- Returns a set { [pc] = true }.
 function M.chordTonePcs(scale, chord)
-  local stepPcs = M.targetStepPcs(scale, chord)
   local set = {}
   for i = 1, #chord.pcs do set[chord.pcs[i]] = true end
-  set[stepPcs[0]], set[stepPcs[2]], set[stepPcs[4]] = true, true, true
+  if #chord.pcs < 3 then
+    local stepPcs = M.targetStepPcs(scale, chord)
+    set[stepPcs[0]], set[stepPcs[2]], set[stepPcs[4]] = true, true, true
+  end
   return set
 end
 
@@ -370,9 +379,10 @@ local function stepOffsets(stepPcs, rootPc)
   return off
 end
 
--- A figure's 7th (or any other non-triad note) counts as a chord tone only
--- when it is heard at least this much of the most heard note: a 7th that is
--- part of the arpeggio, not a 7th that passes once.
+-- A figure's 7th counts as a chord tone only when it is heard at least this
+-- much of the most heard note: a 7th that is part of the arpeggio, not a 7th
+-- that passes once.  Only the 7th: in a scale run every note is heard
+-- equally, and its 2nds, 4ths and 6ths are still passing notes.
 local EXTENSION_SHARE = 0.6
 
 local function isStep(a, b)
@@ -433,7 +443,7 @@ function M.analyzePattern(scale, notes)
   end
 
   -- Chord tones: the triad the figure spells (a sus note standing in for a
-  -- missing third), plus anything else it dwells on.
+  -- missing third), plus a 7th it dwells on.
   local hasThird = chord.stepPc[2] ~= nil
   local nctTime, totalTime = 0, 0
   for i = 1, #sorted do
@@ -441,7 +451,9 @@ function M.analyzePattern(scale, notes)
     local step = n.deg % 7
     local ct = n.alt == 0 and (step == 0 or step == 2 or step == 4
       or (not hasThird and (step == 1 or step == 3)))
-    if share[pcOf(n.pitch)] >= EXTENSION_SHARE then ct = true end
+    if step == 6 and n.alt == 0 and share[pcOf(n.pitch)] >= EXTENSION_SHARE then
+      ct = true
+    end
     n.kind = ct and "ct" or false
     totalTime = totalTime + lengths[i]
   end
@@ -456,105 +468,9 @@ function M.analyzePattern(scale, notes)
            nctShare = totalTime > 0 and nctTime / totalTime or 0 }
 end
 
--- Inversions walk the figure up or down the chord's triad.  Each note is
--- measured from its nearest triad tone (a neighbour note stays a neighbour of
--- the same chord tone), and that triad tone moves `rot` places along the
--- ladder root, third, fifth, root, ...
-local LADDER = { [0] = 0, 2, 4 }
-
-function M.invertDegree(deg, rot)
-  if rot == 0 then return deg end
-  local octave = deg // 7
-  local r = deg % 7
-  local best, bestDist = nil, math.huge
-  local refs = { 0, 2, 4, 7 }
-  for i = 1, #refs do
-    local d = math.abs(r - refs[i])
-    if d < bestDist then best, bestDist = i - 1, d end  -- first wins ties
-  end
-  local e = r - refs[best + 1]
-  local k = 3 * octave + best + rot
-  return 7 * (k // 3) + LADDER[k % 3] + e
-end
-
 local function sign(x)
   if x > 0 then return 1 elseif x < 0 then return -1 end
   return 0
-end
-
--- Each note's diatonic position in inversion `rot`.  Chord tones move along
--- the chord (invertDegree).  An inversion stretches some gaps between chord
--- tones and squeezes others, so a non-chord tone is not inverted on its own:
--- it keeps its step distance from the note before it, provided it still
--- falls on the right side of the next chord tone (a passing note still
--- passes); otherwise from the next chord tone.  A non-chord tone with no
--- room left between its neighbours is returned in `squeezed`, to become a
--- chord tone.
-function M.invertFigure(notes, rot)
-  local degs, squeezed = {}, {}
-  if rot == 0 then
-    for i = 1, #notes do degs[i] = notes[i].deg end
-    return degs, squeezed
-  end
-
-  for i = 1, #notes do
-    if notes[i].kind == "ct" then degs[i] = M.invertDegree(notes[i].deg, rot) end
-  end
-  for i = 1, #notes do
-    local n = notes[i]
-    if n.kind ~= "ct" then
-      local j = i + 1
-      while notes[j] and notes[j].kind ~= "ct" do j = j + 1 end
-      local nxt = notes[j]
-
-      local function fitsNext(d)
-        return not nxt or sign(d - degs[j]) == sign(n.deg - nxt.deg)
-      end
-      local function fitsPrev(d)
-        return i == 1 or sign(d - degs[i - 1]) == sign(n.deg - notes[i - 1].deg)
-      end
-
-      local fromPrev = i > 1 and degs[i - 1] + (n.deg - notes[i - 1].deg)
-      local fromNext = nxt and degs[j] + (n.deg - nxt.deg)
-      if fromPrev and fitsNext(fromPrev) then
-        degs[i] = fromPrev
-      elseif fromNext and fitsPrev(fromNext) then
-        degs[i] = fromNext
-      else
-        degs[i] = fromPrev or fromNext or M.invertDegree(n.deg, rot)
-        squeezed[i] = true
-      end
-    end
-  end
-  return degs, squeezed
-end
-
--- Pitch of every figure note rebuilt on `chordPitches`, before any octave
--- shift, for inversion `rot`.  Returns the list of pitches, and the notes
--- that must become chord tones (see invertFigure).
-local function buildPitches(pattern, stepPcs, rootPc, rot)
-  local off = stepOffsets(stepPcs, rootPc)
-  local degs, squeezed = M.invertFigure(pattern.notes, rot)
-  local out = {}
-  for i = 1, #pattern.notes do
-    local deg = degs[i]
-    local step, octave = deg % 7, deg // 7
-    out[i] = rootPc + off[step] + 12 * octave + pattern.notes[i].alt
-  end
-  return out, squeezed
-end
-
--- Shifts `pitches` by whole octaves so that the first lands as near `anchor`
--- as possible (the lower option on a tie).  Returns the distance too.
-local function nearestOctave(pitches, anchor)
-  local first = pitches[1]
-  local shift = 12 * math.floor((anchor - first) / 12)  -- first+shift <= anchor
-  if math.abs(first + shift + 12 - anchor) < math.abs(first + shift - anchor) then
-    shift = shift + 12
-  end
-  local out = {}
-  for i = 1, #pitches do out[i] = pitches[i] + shift end
-  return out, math.abs(out[1] - anchor)
 end
 
 -- Moves note i of `pitches` onto a chord tone: the nearest one that keeps the
@@ -594,10 +510,7 @@ local KIND_BIAS = { other = 0, neighbour = 2, passing = 4 }
 
 -- Keeps a mapped figure anchored in its chord.
 --
--- 1. Notes that were chord tones in the figure must be chord tones here too:
---    a 7th the figure arpeggiates, mapped onto a triad, moves to a chord
---    tone instead of sounding as a dissonance it never was.  So do the
---    `squeezed` non-chord tones an inversion left no room for.
+-- 1. Notes that were chord tones in the figure must be chord tones here too.
 -- 2. Non-chord tones may take up at most `maxShare` of the figure's
 --    duration (and never more than the figure itself had).  Over that, they
 --    become chord tones one at a time, cheapest first: the one that turns
@@ -607,7 +520,7 @@ local KIND_BIAS = { other = 0, neighbour = 2, passing = 4 }
 --
 -- Non-chord tones that happen to land on one of this chord's tones (a
 -- passing 9th over a chord that plays a 9th) simply count as chord tones.
-function M.balance(pattern, pitches, tones, maxShare, squeezed)
+function M.balance(pattern, pitches, tones, maxShare)
   local out = {}
   for i = 1, #pitches do out[i] = pitches[i] end
   local notes = pattern.notes
@@ -620,8 +533,7 @@ function M.balance(pattern, pitches, tones, maxShare, squeezed)
   end
 
   for i = 1, #notes do
-    if (notes[i].kind == "ct" and not tones[pcOf(out[i])])
-       or (squeezed and squeezed[i]) then
+    if notes[i].kind == "ct" and not tones[pcOf(out[i])] then
       out[i] = toChordTone(pattern, out, i, tones)
     end
   end
@@ -656,23 +568,96 @@ function M.balance(pattern, pitches, tones, maxShare, squeezed)
   return out
 end
 
--- Makes every step of the result go the way the figure's step went: up
--- stays up, down stays down, a repeat stays a repeat.
+--=============================================================================
+-- Rebuilding the figure on a chord
 --
--- This only repairs; it does not reshape.  Notes are left exactly where the
--- mapping put them unless a step around them goes the wrong way, and then
--- as few notes as possible move, as little as possible (the whole line is
--- weighed at once, by dynamic programming over the notes).  A chord tone may
--- only move to another chord tone, so no chord tone is ever given up; a
--- non-chord tone may move to another note of the key or onto the chord.
+-- A chord's tones form a ladder: every pitch whose pitch class the chord
+-- plays, low to high.  The figure's own chord tones form another.  A figure
+-- chord tone that sits k rungs above the figure's first chord tone becomes
+-- the chord tone k rungs above the copy's first chord tone, so a step to the
+-- next chord tone stays a step to the next chord tone, whatever the chord
+-- plays (a 7th, a 6th, a 9th, a sus note) and however it is voiced.
 --
--- Every step next to a moved note aims for the figure's own step size,
--- counted in chord tones: a step from one chord tone to the next stays a
--- step to the adjacent chord tone, rather than leaping over one (or moving
--- a note by an octave) because that happened to be a shorter move.
-local MOVE_COST = 10   -- per note that moves at all, so fewer notes move
-local SKIP_COST = 12   -- per chord tone a repaired step jumps more or less
-local FIX_WINDOW = 12  -- how far a note may move to fix a step
+-- Non-chord tones are placed by key steps from the chord tone they lean on
+-- (the one they resolve to, else the one they come from), so a passing note
+-- still passes and a neighbour still neighbours.
+--=============================================================================
+
+-- Every pitch 0..127 whose class is in `pcs`, ascending, and each pitch's
+-- rung number.
+local function ladder(pcs)
+  local rungs, index = {}, {}
+  for p = 0, 127 do
+    if pcs[pcOf(p)] then
+      rungs[#rungs + 1] = p
+      index[p] = #rungs
+    end
+  end
+  return rungs, index
+end
+
+-- The pitch nearest `target` (lower on a tie) whose class is `pc`.
+local function nearestWithPc(pc, target)
+  local below = target - (target - pc) % 12
+  if target - below <= below + 12 - target then return below end
+  return below + 12
+end
+
+-- The key's notes as a pitch-class set.
+local function keySet(scale)
+  local set = {}
+  for i = 1, #scale.pcs do set[scale.pcs[i]] = true end
+  return set
+end
+
+-- `d` notes of the key up (d > 0) or down (d < 0) from pitch `p`.  From a
+-- pitch outside the key, the first step lands on the nearest key note that
+-- way.
+local function stepKey(inKey, p, d)
+  local q = p
+  for _ = 1, math.abs(d) do
+    repeat q = q + sign(d) until inKey[pcOf(q)]
+  end
+  return q
+end
+
+-- How a non-chord tone sits relative to a chord tone, in key steps: returns
+-- `d`, the number of key notes from `ct` to the key note the non-chord tone
+-- is based on, and `alt`, its chromatic alteration from that key note.
+local function keyStepsFrom(inKey, ct, nct)
+  local base = nct
+  if not inKey[pcOf(nct)] then
+    -- A chromatic note is read from the key note on the chord tone's side.
+    local dir = nct > ct and -1 or 1
+    repeat base = base + dir until inKey[pcOf(base)]
+  end
+  local d = 0
+  if base > ct then
+    for p = ct + 1, base do if inKey[pcOf(p)] then d = d + 1 end end
+  elseif base < ct then
+    for p = base, ct - 1 do if inKey[pcOf(p)] then d = d - 1 end end
+  end
+  return d, nct - base
+end
+
+-- The chord tone a non-chord tone leans on: of the chord tones either side
+-- of it in time, the one fewer key steps away (the next one on a tie: the
+-- note it resolves to).  Returns its index in `notes`.
+local function leanOn(notes, i, inKey)
+  local prev, nxt
+  for j = i - 1, 1, -1 do
+    if notes[j].kind == "ct" then prev = j; break end
+  end
+  for j = i + 1, #notes do
+    if notes[j].kind == "ct" then nxt = j; break end
+  end
+  if not (prev and nxt) then return prev or nxt end
+  local p = notes[i].pitch
+  local dPrev = math.abs(keyStepsFrom(inKey, notes[prev].pitch, p))
+  local dNext = math.abs(keyStepsFrom(inKey, notes[nxt].pitch, p))
+  if dPrev < dNext then return prev end
+  return nxt
+end
 
 -- Chord tones strictly between pitches a and b.
 local function tonesBetween(a, b, tones)
@@ -684,27 +669,85 @@ local function tonesBetween(a, b, tones)
   return count
 end
 
-function M.fixDirections(pattern, pitches, tones, scale)
+-- One output pitch per figure pitch, in the figure's order.
+--
+-- Every occurrence of the same figure note becomes the same note, so a
+-- figure made of repeated groups comes out as repeated groups.  And a
+-- higher figure note maps to a higher note wherever that decides a step the
+-- figure plays, so every step goes the way the figure's step went: up stays
+-- up, down stays down, a repeat stays a repeat.  (Two figure notes that are
+-- never heard one after the other, like two different neighbour notes, may
+-- share a pitch.)
+--
+-- `pitches` is the copy as mapped.  Each distinct figure pitch takes the
+-- pitch most of its occurrences were mapped to, preferring a chord tone if
+-- any occurrence landed on one (so a non-chord tone that balance turned into
+-- a chord tone stays one everywhere, and the budget holds); where that would
+-- put two
+-- figure pitches out of order, the fewest notes move, as little as possible,
+-- with the steps around a moved note kept to the figure's own size counted
+-- in chord tones (dynamic programming over the figure's pitches, low to
+-- high).  A chord tone only moves to another chord tone; a non-chord tone
+-- may move to another key note or onto the chord.
+local MOVE_COST = 10   -- per figure pitch that moves at all
+local SKIP_COST = 12   -- per chord tone a moved step jumps more or less
+local FIX_WINDOW = 12  -- how far a note may move
+
+function M.keepOrder(pattern, pitches, tones, figureTones, scale)
   local notes = pattern.notes
-  local n = #pitches
-  if n < 2 then return pitches end
+  local inKey = keySet(scale)
 
-  local inKey = {}
-  for i = 1, #scale.pcs do inKey[scale.pcs[i]] = true end
-
-  -- The figure's own steps, in its own chord tones.
-  local figureTones = {}
-  for i = 1, n do
-    if notes[i].kind == "ct" then figureTones[pcOf(notes[i].pitch)] = true end
+  -- Distinct figure pitches, low to high, each with its usual mapping.
+  local votes, order = {}, {}
+  for i = 1, #notes do
+    local src = notes[i].pitch
+    if not votes[src] then
+      votes[src] = { count = {} }
+      order[#order + 1] = src
+    end
+    local v = votes[src]
+    v.count[pitches[i]] = (v.count[pitches[i]] or 0) + 1
   end
-  local span = {}
-  for i = 2, n do
-    span[i] = tonesBetween(notes[i - 1].pitch, notes[i].pitch, figureTones)
+  table.sort(order)
+
+  local mapped = {}
+  for _, src in ipairs(order) do
+    local v = votes[src]
+    local best, bestN, bestTone = nil, -1, false
+    for p, n in pairs(v.count) do
+      local tone = tones[pcOf(p)] and true or false
+      if (tone and not bestTone)
+         or (tone == bestTone and (n > bestN or (n == bestN and p < best))) then
+        best, bestN, bestTone = p, n, tone
+      end
+    end
+    mapped[src] = best
+  end
+
+  local m = #order
+  local rank = {}
+  for k = 1, m do rank[order[k]] = k end
+
+  -- strict[k]: figure pitches order[k-1] and order[k] must map to different
+  -- pitches.  Every step the figure plays spans one or more of these links;
+  -- a step spanning just one link needs it, and a longer step needs at least
+  -- one of its links (the middle one, if none is already strict).
+  local strict, spans = {}, {}
+  for i = 2, #notes do
+    local a, b = rank[notes[i - 1].pitch], rank[notes[i].pitch]
+    if a > b then a, b = b, a end
+    if b == a + 1 then strict[b] = true
+    elseif b > a + 1 then spans[#spans + 1] = { a + 1, b } end
+  end
+  for _, sp in ipairs(spans) do
+    local covered = false
+    for k = sp[1], sp[2] do if strict[k] then covered = true end end
+    if not covered then strict[(sp[1] + sp[2]) // 2] = true end
   end
 
   local cands = {}
-  for i = 1, n do
-    local old = pitches[i]
+  for k = 1, m do
+    local old = mapped[order[k]]
     local isTone = tones[pcOf(old)]
     local list = { { pitch = old, cost = 0 } }
     for p = old - FIX_WINDOW, old + FIX_WINDOW do
@@ -714,80 +757,118 @@ function M.fixDirections(pattern, pitches, tones, scale)
         list[#list + 1] = { pitch = p, cost = MOVE_COST + math.abs(p - old) }
       end
     end
-    cands[i] = list
+    cands[k] = list
   end
 
   local cost, from = { {} }, { {} }
-  for k = 1, #cands[1] do cost[1][k] = cands[1][k].cost end
-  for i = 2, n do
-    cost[i], from[i] = {}, {}
-    local want = sign(notes[i].pitch - notes[i - 1].pitch)
-    for k = 1, #cands[i] do
-      local p = cands[i][k].pitch
+  for c = 1, #cands[1] do cost[1][c] = cands[1][c].cost end
+  for k = 2, m do
+    cost[k], from[k] = {}, {}
+    local span = tonesBetween(order[k - 1], order[k], figureTones)
+    for c = 1, #cands[k] do
+      local p = cands[k][c].pitch
       local best, bestJ = math.huge, 1
-      for j = 1, #cands[i - 1] do
-        local c = cost[i - 1][j]
-        local q = cands[i - 1][j].pitch
+      for j = 1, #cands[k - 1] do
+        local q = cands[k - 1][j].pitch
+        local t = cost[k - 1][j]
         -- Effectively forbidden: any number of moved notes is cheaper.
-        if sign(p - q) ~= want then c = c + 1e6 end
-        if cands[i][k].cost > 0 or cands[i - 1][j].cost > 0 then
-          c = c + SKIP_COST * math.abs(tonesBetween(q, p, tones) - span[i])
+        if p < q or (p == q and strict[k]) then t = t + 1e6 end
+        if cands[k][c].cost > 0 or cands[k - 1][j].cost > 0 then
+          t = t + SKIP_COST * math.abs(tonesBetween(q, p, tones) - span)
         end
-        if c < best then best, bestJ = c, j end
+        if t < best then best, bestJ = t, j end
       end
-      cost[i][k] = best + cands[i][k].cost
-      from[i][k] = bestJ
+      cost[k][c] = best + cands[k][c].cost
+      from[k][c] = bestJ
     end
   end
 
-  local k, best = 1, math.huge
-  for j = 1, #cands[n] do
-    if cost[n][j] < best then k, best = j, cost[n][j] end
+  local f, c, best = {}, 1, math.huge
+  for j = 1, #cands[m] do
+    if cost[m][j] < best then c, best = j, cost[m][j] end
   end
+  for k = m, 1, -1 do
+    f[order[k]] = cands[k][c].pitch
+    if k > 1 then c = from[k][c] end
+  end
+
   local out = {}
-  for i = n, 1, -1 do
-    out[i] = cands[i][k].pitch
-    if i > 1 then k = from[i][k] end
-  end
+  for i = 1, #notes do out[i] = f[notes[i].pitch] end
   return out
 end
 
 -- The heart of the script: the figure rebuilt on one chord.
 --
 -- opts: { maxAnchorJump, allowInversions, maxNctShare }
--- Returns the pitches in the figure's playing order, and the inversion used.
+-- Returns the pitches in the figure's playing order.
 function M.realize(scale, pattern, chordPitches, opts)
   opts = opts or {}
   local maxJump = opts.maxAnchorJump or 2
+  local notes = pattern.notes
   local chord = M.analyzeChord(scale, chordPitches)
-  local stepPcs = M.targetStepPcs(scale, chord)
-
-  local best, bestJump, bestRot = nil, math.huge, 0
-  local rots = opts.allowInversions == false and { 0 } or { 0, -1, 1, -2, 2 }
-  local bestSqueezed
-  for i = 1, #rots do
-    local rot = rots[i]
-    local raw, squeezed = buildPitches(pattern, stepPcs, chord.rootPc, rot)
-    local pitches, jump = nearestOctave(raw, pattern.anchor)
-    if rot == 0 and jump <= maxJump then
-      best, bestRot, bestSqueezed = pitches, 0, squeezed
-      break
-    end
-    if jump < bestJump then
-      best, bestJump, bestRot, bestSqueezed = pitches, jump, rot, squeezed
-    end
-  end
-
   local tones = M.chordTonePcs(scale, chord)
-  best = M.balance(pattern, best, tones, opts.maxNctShare or 0.5,
-                   bestSqueezed)
-  best = M.fixDirections(pattern, best, tones, scale)
+  local inKey = keySet(scale)
 
-  for i = 1, #best do
-    if best[i] < 0 then best[i] = best[i] + 12 * math.ceil(-best[i] / 12) end
-    if best[i] > 127 then best[i] = best[i] - 12 * math.ceil((best[i] - 127) / 12) end
+  local figureTones = {}
+  for i = 1, #notes do
+    if notes[i].kind == "ct" then figureTones[pcOf(notes[i].pitch)] = true end
   end
-  return best, bestRot
+  local rungs, rungOf = ladder(tones)
+  local _, figRungOf = ladder(figureTones)
+
+  -- The copy's first chord tone: the same chord role as the figure's first
+  -- chord tone, in the octave nearest it.  If that is more than maxJump away
+  -- (and inversions are allowed), the nearest chord tone instead.
+  local ref
+  for i = 1, #notes do
+    if notes[i].kind == "ct" then ref = i; break end
+  end
+  local out = {}
+  if ref then
+    local anchor = notes[ref].pitch
+    local rolePc = M.targetStepPcs(scale, chord)[notes[ref].deg % 7]
+    local start = tones[rolePc] and nearestWithPc(rolePc, anchor) or nil
+    if not start or (opts.allowInversions ~= false
+                     and math.abs(start - anchor) > maxJump) then
+      local near = start
+      for _, p in ipairs(rungs) do
+        if not near or math.abs(p - anchor) < math.abs(near - anchor) then
+          near = p
+        end
+      end
+      start = near
+    end
+
+    -- Chord tones climb the chord's ladder exactly as the figure's climb its.
+    local base = rungOf[start] - figRungOf[anchor]
+    for i = 1, #notes do
+      if notes[i].kind == "ct" then
+        local r = base + figRungOf[notes[i].pitch]
+        if r < 1 then r = 1 elseif r > #rungs then r = #rungs end
+        out[i] = rungs[r]
+      end
+    end
+
+    -- Non-chord tones keep their key steps from the chord tone they lean on.
+    for i = 1, #notes do
+      if notes[i].kind ~= "ct" then
+        local j = leanOn(notes, i, inKey)
+        local d, alt = keyStepsFrom(inKey, notes[j].pitch, notes[i].pitch)
+        out[i] = stepKey(inKey, out[j], d) + alt
+      end
+    end
+  else
+    for i = 1, #notes do out[i] = notes[i].pitch end
+  end
+
+  out = M.balance(pattern, out, tones, opts.maxNctShare or 0.5)
+  out = M.keepOrder(pattern, out, tones, figureTones, scale)
+
+  for i = 1, #out do
+    if out[i] < 0 then out[i] = out[i] + 12 * math.ceil(-out[i] / 12) end
+    if out[i] > 127 then out[i] = out[i] - 12 * math.ceil((out[i] - 127) / 12) end
+  end
+  return out
 end
 
 -- The figure's length: its span rounded up to `unit` ticks.
@@ -987,7 +1068,8 @@ local function run()
                                        CONFIG.CHORD_MIN_LENGTH_QN * ppq - tol,
                                        tol)
 
-  local chords = M.findChords(candidates, tol)
+  local chords = M.findChords(candidates,
+                              CONFIG.CHORD_ONSET_TOLERANCE_QN * ppq)
   if #chords == 0 then
     return fail("There are no chords after the selected figure to copy it " ..
                 "onto.\n\nThe chords to rewrite are unselected notes a " ..
