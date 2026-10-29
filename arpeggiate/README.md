@@ -37,70 +37,66 @@ Key snap D major (or B minor), measure 1 selected:
 ```
 figure  B4 D5 F#5 B5 | B4 D5 F#5 B5 | B4 D5 A5 B5 | B4 D5 F#5 B5     (Bm, 16ths)
 chords  A4 C#5 E5 A5  (whole note)  →  A4 C#5 E5 A5 | … | A4 C#5 G5 A5 | …
-        A4 B4 E5 G5   (whole note)  →  A4 B4  E5 A5 | … | A4 B4  G5 A5 | …
+        A4 B4 E5 G5   (whole note)  →  A4 B4  E5 G5 | … | A4 B4 F#5 G5 | …
 ```
 
-The figure is root–third–fifth–octave with a 7th (A) as a neighbour in group 3.
-Over A major the same degrees give A–C#–E–A, with the key's G as the 7th. The
-second chord has no third but does have a B (sus2) and a G: the figure's third
-becomes that B and its 7th uses the chord's own G.
+The figure climbs B–D–F#–B one chord tone at a time, with an A as a neighbour
+below the top B in group 3. Over A major it climbs A–C#–E–A, and the neighbour
+is the G below the top A. The second chord plays A, B, E and G, so the figure
+climbs those four notes one at a time — A–B–E–G — instead of leaping over the
+G to an A, and the neighbour becomes the F# below the top G.
 
 ## How the figure is mapped
 
-- **Each chord is analysed** for its root by stacking thirds (with a bonus for
-  the bass note), so inversions and sus chords are read correctly.
-- **Each figure note becomes a scale degree** above the figure's own root, with
-  its octave. A chromatic note keeps its alteration (B–A#–B over Bm becomes
-  E–D#–E over Em).
-- **The target chord's own notes win.** Whatever degrees it spells — a
-  chromatic third, a sus2 or sus4 standing in for the third, a 7th — are used
-  as written. Degrees it does not spell come from the Key Snap key, so the
-  result stays in the key signature.
 - **Chord tones and non-chord tones.** The figure is split into the notes
-  that spell its chord (root, third, fifth, plus anything it dwells on, such as
-  an arpeggiated 7th) and its non-chord tones, each read as a *passing* note
+  that spell its chord (root, third, fifth, plus a 7th it dwells on, as in an
+  arpeggiated maj7) and its non-chord tones, each read as a *passing* note
   (a step in and a step on the same way), a *neighbour* (a step away and back)
-  or a *leap* (approached or left by a jump). Each block chord is read the same
-  way: its own notes are its chord tones, plus a third and fifth from the key
-  if it does not play them.
-- **Chord tones stay chord tones.** A figure chord tone always lands on a tone
-  of the new chord. An arpeggiated maj7 over a plain triad moves to a triad
-  tone rather than becoming a dissonance it never was in the figure.
-- **Decorations stay decorations.** Non-chord tones keep their scale-step
-  relation to the notes around them, so a passing note still passes and a
-  neighbour still neighbours. One that lands on a note the chord plays (a
-  passing C over Dm7) simply becomes a chord tone.
+  or a *leap* (approached or left by a jump).
+- **Each chord's tones are the notes it plays** — 7ths, 6ths, 9ths, 11ths and
+  sus notes included, in any voicing or inversion; doublings change nothing.
+  A chord of only one or two pitch classes (a bare fifth) gets a third and
+  fifth from the Key Snap key.
+- **Chord tones climb the chord's own notes.** Think of a chord's notes as the
+  rungs of a ladder, all the way up the keyboard. A figure chord tone that is
+  one rung above the previous one in the figure is one rung above it in the
+  copy, two rungs is two, and so on. So a figure that steps through its chord
+  one note at a time steps through every chord one note at a time, taking in
+  whatever the chord plays rather than leaping over its 7th or 9th. Over a
+  plain triad this is the same as mapping root to root, third to third.
+- **Decorations stay decorations.** A non-chord tone keeps its distance in key
+  steps from the chord tone it leans on (of the chord tones either side of it,
+  the nearer one; the one it resolves to on a tie), so a passing note still
+  passes and a neighbour still neighbours. Chromatic notes keep their
+  alteration (B–A#–B over Bm becomes E–D#–E over Em).
+- **Same note in, same note out.** Every time the figure plays a given note,
+  the copy plays the same note, so a figure built from repeated groups comes
+  out as repeated groups.
+- **Up and down always follow the figure.** Every step goes the same way as
+  the figure's step: up stays up, down stays down, a repeat stays a repeat.
+  Where the mapping would bend that (two decorations squeezed into one gap,
+  say), the fewest notes move, as little as possible, keeping the figure's
+  step sizes in chord tones; a chord tone only ever moves to another chord
+  tone.
 - **No chord is mostly outside notes.** A chord never gets a bigger share of
   non-chord tones, by duration, than the figure had, nor more than
   `MAX_NCT_SHARE` (half, by default). Over that, the decorations that can
-  become chord tones with the least disturbance to the line go first (no
-  repeated notes, no change of direction), leaps before neighbours before
-  passing notes, so the line keeps moving rather than turning into a
-  mechanical broken chord.
-- **Up and down always follow the figure.** Every step goes the same way as
-  the figure's step: up stays up, down stays down, a repeat stays a repeat.
-  The mapping almost always does this by itself; where it would not (over a
-  sus chord the figure's 3rd and 4th land on the same note, and an inversion
-  can squeeze a gap), a final repair moves as few notes as possible, as
-  little as possible. Notes on a correct step are never touched, and a chord
-  tone only ever moves to another chord tone. The steps either side of a
-  repaired note keep the figure's own size counted in chord tones, so a step
-  to the next chord tone stays one, rather than leaping over a chord tone or
-  an octave.
-- **Anchoring.** The figure's first note is the anchor. Every figure is moved
-  by octaves so it starts as near the anchor as possible. If that is still more
-  than `MAX_ANCHOR_JUMP` semitones away, the figure is rebuilt on the inversion
-  that starts nearest: C–E–G–C followed by a G chord becomes B–D–G–B, not a
-  jump down to G. Chord tones move along the chord; decorations keep their
-  step from the note before them, or from the next chord tone, so they still
-  sit between the notes they connect. One with no room left becomes a chord
-  tone.
+  become chord tones with the least disturbance to the line go first, leaps
+  before neighbours before passing notes.
+- **Anchoring.** The figure's first chord tone is the anchor. The copy starts
+  on the chord tone with the same role (root for root, third for third) in
+  the octave nearest the anchor. If that is more than `MAX_ANCHOR_JUMP`
+  semitones away, it starts on whichever of the chord's notes is nearest
+  instead: C–E–G–C followed by a G chord becomes B–D–G–B, not a jump down to
+  G.
 
 ## Which notes are replaced
 
 - The **chords** are the unselected notes at least a quarter note long
   (`CHORD_MIN_LENGTH_QN`) that start after the figure ends. Shorter
-  unselected notes are ignored and left untouched.
+  unselected notes are ignored and left untouched. Chord notes starting
+  within a 16th of each other (`CHORD_ONSET_TOLERANCE_QN`) are one chord, so a
+  humanized or rolled chord is not split into a one-note chord and the rest.
   A chord lasts until the next chord starts, or until its notes end if there is
   a rest. A note held under a chord change counts toward both chords.
 - With a **time selection** that ends after the figure, only chords starting
@@ -122,6 +118,7 @@ The `CONFIG` table at the top of the script:
 | `MAX_ANCHOR_JUMP` | `2` | Semitones a figure may start from the anchor before it is inverted. Raise it to invert less often. |
 | `ALLOW_INVERSIONS` | `true` | `false` keeps every figure on the chord role it was written on, moving only by octaves. |
 | `MAX_NCT_SHARE` | `0.5` | Most of each chord, by duration, that may be non-chord tones (and never more than the figure had). Lower it to hear the chords more plainly; `0` makes every note a chord tone, `1` keeps the figure as mapped. |
+| `CHORD_ONSET_TOLERANCE_QN` | `0.25` | Chord notes starting within this many quarter notes of each other are one chord. |
 | `CHORD_MIN_LENGTH_QN` | `0.75` | Unselected notes at least this long are chords; shorter ones are ignored. `0.75` also catches a slightly short quarter note. |
 | `KEYSWITCH_MAX_PITCH` | `11` | Notes at or below this pitch are ignored and left alone. |
 | `ONSET_TOLERANCE_QN` | `0.03` | Chord notes starting within this many quarter notes count as one chord. |
@@ -132,13 +129,7 @@ The `CONFIG` table at the top of the script:
 
 - **Scales other than seven-note ones** (pentatonic, blues, chromatic) are
   replaced by the major or natural minor scale on the same root, whichever
-  their third suggests: the degree mapping thinks in thirds.
-- **A sus chord with a figure that uses both the 2nd and the 3rd** maps both to
-  the chord's sus note, so two neighbouring figure notes can come out the same.
-- **A full scale run over an inverted chord** cannot keep one note per scale
-  step, since the inversion changes the gaps between chord tones; the passing
-  note with no room becomes a chord tone, which can turn the line briefly.
-  Set `ALLOW_INVERSIONS = false` if you want runs kept strictly stepwise.
+  their third suggests: reading the figure's chord thinks in thirds.
 - **The figure is read as one chord.** A figure that itself changes harmony
   part way through will be read as one larger chord.
 
@@ -151,8 +142,8 @@ outside REAPER:
 lua5.4 tests/test_arpeggiate.lua
 ```
 
-82 checks covering key snap parsing, root detection, degree reading, sus and
-chromatic chords, chord and non-chord tone analysis, the non-chord budget,
-up/down order (including a sweep of random figures over 13 chords that must
-never change a step's direction), anchoring and inversions, block-chord
-selection, chord splitting and tiling, and the example above.
+88 checks covering key snap parsing, root detection, chord and non-chord tone
+analysis, chords with 7ths, 6ths, 9ths and 11ths in several voicings and
+inversions, decorations, the non-chord budget, up/down order and repeated
+groups, anchoring and inversions, rolled chords, block-chord selection, chord
+splitting and tiling, and the example above.
