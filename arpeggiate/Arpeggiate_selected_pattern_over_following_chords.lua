@@ -665,8 +665,24 @@ end
 -- weighed at once, by dynamic programming over the notes).  A chord tone may
 -- only move to another chord tone, so no chord tone is ever given up; a
 -- non-chord tone may move to another note of the key or onto the chord.
+--
+-- Every step next to a moved note aims for the figure's own step size,
+-- counted in chord tones: a step from one chord tone to the next stays a
+-- step to the adjacent chord tone, rather than leaping over one (or moving
+-- a note by an octave) because that happened to be a shorter move.
 local MOVE_COST = 10   -- per note that moves at all, so fewer notes move
+local SKIP_COST = 12   -- per chord tone a repaired step jumps more or less
 local FIX_WINDOW = 12  -- how far a note may move to fix a step
+
+-- Chord tones strictly between pitches a and b.
+local function tonesBetween(a, b, tones)
+  if a > b then a, b = b, a end
+  local count = 0
+  for p = a + 1, b - 1 do
+    if tones[pcOf(p)] then count = count + 1 end
+  end
+  return count
+end
 
 function M.fixDirections(pattern, pitches, tones, scale)
   local notes = pattern.notes
@@ -675,6 +691,16 @@ function M.fixDirections(pattern, pitches, tones, scale)
 
   local inKey = {}
   for i = 1, #scale.pcs do inKey[scale.pcs[i]] = true end
+
+  -- The figure's own steps, in its own chord tones.
+  local figureTones = {}
+  for i = 1, n do
+    if notes[i].kind == "ct" then figureTones[pcOf(notes[i].pitch)] = true end
+  end
+  local span = {}
+  for i = 2, n do
+    span[i] = tonesBetween(notes[i - 1].pitch, notes[i].pitch, figureTones)
+  end
 
   local cands = {}
   for i = 1, n do
@@ -701,8 +727,12 @@ function M.fixDirections(pattern, pitches, tones, scale)
       local best, bestJ = math.huge, 1
       for j = 1, #cands[i - 1] do
         local c = cost[i - 1][j]
+        local q = cands[i - 1][j].pitch
         -- Effectively forbidden: any number of moved notes is cheaper.
-        if sign(p - cands[i - 1][j].pitch) ~= want then c = c + 1e6 end
+        if sign(p - q) ~= want then c = c + 1e6 end
+        if cands[i][k].cost > 0 or cands[i - 1][j].cost > 0 then
+          c = c + SKIP_COST * math.abs(tonesBetween(q, p, tones) - span[i])
+        end
         if c < best then best, bestJ = c, j end
       end
       cost[i][k] = best + cands[i][k].cost
