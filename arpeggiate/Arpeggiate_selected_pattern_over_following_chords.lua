@@ -370,10 +370,9 @@ local function stepOffsets(stepPcs, rootPc)
   return off
 end
 
--- A figure's 7th counts as a chord tone only when it is heard at least this
--- much of the most heard note: a 7th that is part of the arpeggio, not a 7th
--- that passes once.  Only the 7th: in a scale run every note is heard
--- equally, and its 2nds, 4ths and 6ths are still passing notes.
+-- A figure's 7th (or any other non-triad note) counts as a chord tone only
+-- when it is heard at least this much of the most heard note: a 7th that is
+-- part of the arpeggio, not a 7th that passes once.
 local EXTENSION_SHARE = 0.6
 
 local function isStep(a, b)
@@ -434,7 +433,7 @@ function M.analyzePattern(scale, notes)
   end
 
   -- Chord tones: the triad the figure spells (a sus note standing in for a
-  -- missing third), plus a 7th it dwells on.
+  -- missing third), plus anything else it dwells on.
   local hasThird = chord.stepPc[2] ~= nil
   local nctTime, totalTime = 0, 0
   for i = 1, #sorted do
@@ -442,9 +441,7 @@ function M.analyzePattern(scale, notes)
     local step = n.deg % 7
     local ct = n.alt == 0 and (step == 0 or step == 2 or step == 4
       or (not hasThird and (step == 1 or step == 3)))
-    if step == 6 and n.alt == 0 and share[pcOf(n.pitch)] >= EXTENSION_SHARE then
-      ct = true
-    end
+    if share[pcOf(n.pitch)] >= EXTENSION_SHARE then ct = true end
     n.kind = ct and "ct" or false
     totalTime = totalTime + lengths[i]
   end
@@ -610,9 +607,6 @@ local KIND_BIAS = { other = 0, neighbour = 2, passing = 4 }
 --
 -- Non-chord tones that happen to land on one of this chord's tones (a
 -- passing 9th over a chord that plays a 9th) simply count as chord tones.
---
--- Returns the pitches, and the set of notes that must stay chord tones (the
--- figure's chord tones and every note turned into one here).
 function M.balance(pattern, pitches, tones, maxShare, squeezed)
   local out = {}
   for i = 1, #pitches do out[i] = pitches[i] end
@@ -625,13 +619,11 @@ function M.balance(pattern, pitches, tones, maxShare, squeezed)
     total = total + len[i]
   end
 
-  local must = {}
   for i = 1, #notes do
     if (notes[i].kind == "ct" and not tones[pcOf(out[i])])
        or (squeezed and squeezed[i]) then
       out[i] = toChordTone(pattern, out, i, tones)
     end
-    if notes[i].kind == "ct" or (squeezed and squeezed[i]) then must[i] = true end
   end
 
   local allowance = math.min(pattern.nctShare, maxShare or 1) * total
@@ -659,38 +651,24 @@ function M.balance(pattern, pitches, tones, maxShare, squeezed)
     if not pick then break end
     done[pick] = true
     out[pick] = pickPitch
-    must[pick] = true
     if tones[pcOf(pickPitch)] then outside = outside - len[pick] end
   end
-  return out, must
+  return out
 end
 
--- The last word on shape: every step of the result goes the way the
--- figure's step went (up stays up, down stays down, a repeat stays a
--- repeat).
+-- Makes every step of the result go the way the figure's step went: up
+-- stays up, down stays down, a repeat stays a repeat.
 --
--- Mapping by scale degree keeps the shape almost always, but not quite: a
--- sus chord gives the figure's 3rd and 4th the same note, an inversion
--- stretches some gaps and squeezes others, and a decoration turned into a
--- chord tone can overshoot.  This pass looks at the whole line at once
--- (dynamic programming over the notes) and finds the pitches closest to the
--- mapped ones that keep every step's direction, and as near as possible its
--- size, so a step stays a step and a leap stays a leap.  Each note may use any note
--- of the key or the chord near its mapped pitch; a note that must be a chord
--- tone stays one, and a chord tone is only given up at a cost, so the
--- chord/non-chord balance holds.  Where the mapping already has the right
--- shape, nothing changes.
--- The shape outranks everything else: matching the selection's ups and downs
--- is worth more than keeping a chord tone strictly on the chord.
-local SHAPE_REVERSAL_COST = 45  -- a step turned around
-local SHAPE_FLATTEN_COST = 35   -- a step turned into a repeat, or vice versa
-local LEAVE_CHORD_COST = 30     -- a must-be chord tone off the chord
-local LOSE_CHORD_COST = 6       -- any other chord tone becoming an outside note
-local CHROMATIC_COST = 4        -- a note outside both key and chord
-local SHAPE_WINDOW = 9          -- how far from its mapped pitch a note may move
-local INTERVAL_WEIGHT = 1       -- per semitone a step grows or shrinks
+-- This only repairs; it does not reshape.  Notes are left exactly where the
+-- mapping put them unless a step around them goes the wrong way, and then
+-- as few notes as possible move, as little as possible (the whole line is
+-- weighed at once, by dynamic programming over the notes).  A chord tone may
+-- only move to another chord tone, so no chord tone is ever given up; a
+-- non-chord tone may move to another note of the key or onto the chord.
+local MOVE_COST = 10   -- per note that moves at all, so fewer notes move
+local FIX_WINDOW = 12  -- how far a note may move to fix a step
 
-function M.keepShape(pattern, pitches, tones, must, scale)
+function M.fixDirections(pattern, pitches, tones, scale)
   local notes = pattern.notes
   local n = #pitches
   if n < 2 then return pitches end
@@ -700,18 +678,14 @@ function M.keepShape(pattern, pitches, tones, must, scale)
 
   local cands = {}
   for i = 1, n do
-    local m = pitches[i]
-    local list = {}
-    for p = m - SHAPE_WINDOW, m + SHAPE_WINDOW do
+    local old = pitches[i]
+    local isTone = tones[pcOf(old)]
+    local list = { { pitch = old, cost = 0 } }
+    for p = old - FIX_WINDOW, old + FIX_WINDOW do
       local pc = pcOf(p)
-      if p >= 0 and p <= 127 and (inKey[pc] or tones[pc] or p == m) then
-        local c = math.abs(p - m)
-        if not tones[pc] then
-          if must[i] then c = c + LEAVE_CHORD_COST
-          elseif tones[pcOf(m)] then c = c + LOSE_CHORD_COST end
-          if not inKey[pc] and p ~= m then c = c + CHROMATIC_COST end
-        end
-        list[#list + 1] = { pitch = p, cost = c }
+      if p ~= old and p >= 0 and p <= 127
+         and (tones[pc] or (not isTone and inKey[pc])) then
+        list[#list + 1] = { pitch = p, cost = MOVE_COST + math.abs(p - old) }
       end
     end
     cands[i] = list
@@ -727,14 +701,8 @@ function M.keepShape(pattern, pitches, tones, must, scale)
       local best, bestJ = math.huge, 1
       for j = 1, #cands[i - 1] do
         local c = cost[i - 1][j]
-        local step = p - cands[i - 1][j].pitch
-        local got = sign(step)
-        c = c + INTERVAL_WEIGHT * math.abs(math.abs(step)
-                                  - math.abs(notes[i].pitch - notes[i - 1].pitch))
-        if got ~= want then
-          c = c + ((got == 0 or want == 0) and SHAPE_FLATTEN_COST
-                                            or SHAPE_REVERSAL_COST)
-        end
+        -- Effectively forbidden: any number of moved notes is cheaper.
+        if sign(p - cands[i - 1][j].pitch) ~= want then c = c + 1e6 end
         if c < best then best, bestJ = c, j end
       end
       cost[i][k] = best + cands[i][k].cost
@@ -781,10 +749,9 @@ function M.realize(scale, pattern, chordPitches, opts)
   end
 
   local tones = M.chordTonePcs(scale, chord)
-  local must
-  best, must = M.balance(pattern, best, tones, opts.maxNctShare or 0.5,
-                         bestSqueezed)
-  best = M.keepShape(pattern, best, tones, must, scale)
+  best = M.balance(pattern, best, tones, opts.maxNctShare or 0.5,
+                   bestSqueezed)
+  best = M.fixDirections(pattern, best, tones, scale)
 
   for i = 1, #best do
     if best[i] < 0 then best[i] = best[i] + 12 * math.ceil(-best[i] / 12) end
@@ -793,18 +760,13 @@ function M.realize(scale, pattern, chordPitches, opts)
   return best, bestRot
 end
 
--- Where the figure starts and how long it is: its span rounded up to `unit`
--- ticks.  `start` (optional) is where the figure's time begins, if earlier
--- than its first note: the beat it starts in, so a figure that opens after a
--- short rest keeps that rest in every copy instead of being pulled onto the
--- chord's attack.
-function M.patternLength(notes, unit, start)
+-- The figure's length: its span rounded up to `unit` ticks.
+function M.patternLength(notes, unit)
   local s, e = math.huge, -math.huge
   for i = 1, #notes do
     if notes[i].startPos < s then s = notes[i].startPos end
     if notes[i].endPos > e then e = notes[i].endPos end
   end
-  if start and start < s then s = start end
   local span = e - s
   if unit and unit > 0 then
     -- A hair of slack so float noise in PPQ values cannot add a whole unit.
@@ -974,15 +936,7 @@ local function run()
   local gridQN = reaper.MIDI_GetGrid(take)
   local unitQN = CONFIG.MAX_LENGTH_UNIT_QN
   if gridQN and gridQN > 0 and gridQN < unitQN then unitQN = gridQN end
-  -- The figure's time starts on the beat its first note falls in.
-  local firstStart = math.huge
-  for i = 1, #figure do
-    if figure[i].startPos < firstStart then firstStart = figure[i].startPos end
-  end
-  local firstQN = reaper.MIDI_GetProjQNFromPPQPos(take, firstStart)
-  local beatStart = reaper.MIDI_GetPPQPosFromProjQN(take,
-                                                    math.floor(firstQN + 1e-6))
-  local patStart, patLen = M.patternLength(figure, unitQN * ppq, beatStart)
+  local patStart, patLen = M.patternLength(figure, unitQN * ppq)
 
   local patEnd = -math.huge
   for i = 1, #figure do

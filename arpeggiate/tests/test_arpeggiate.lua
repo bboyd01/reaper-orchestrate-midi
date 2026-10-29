@@ -252,9 +252,9 @@ do
   -- pass, the neighbour still neighbours.
   local r = M.realize(C_MAJOR, pattern, ps("F3 A3 C4"))
   -- (Inverted onto C: the falling third E-D-C became the falling fourth
-  -- F-?-C; the passing D splits it as evenly as the figure's two steps.)
+  -- F-?-C, and the passing note keeps its step from the F.)
   check("over F: decorations kept", r, ps(
-    "C4 D4 F4 A4  B4 A4 F4 D4  C4 F4 G4 A4  C5 B4 A4 F4"))
+    "C4 D4 F4 A4  B4 A4 F4 E4  C4 F4 G4 A4  C5 B4 A4 F4"))
   check("over F: at most the figure's share outside", outside(C_MAJOR, r,
         ps("F3 A3 C4")) <= 5, true)
 
@@ -327,7 +327,7 @@ do
 end
 
 --=============================================================================
-print("-- the result follows the figure's shape")
+print("-- up and down follow the figure")
 --=============================================================================
 
 local function directions(r)
@@ -339,8 +339,8 @@ local function directions(r)
 end
 
 do
-  -- Over a sus4 chord the figure's 3rd and 4th both map to the 4th; the
-  -- step between them must still be a step up, not a repeated note.
+  -- Over a sus4 chord the figure's 3rd and 4th both map to the 4th; the step
+  -- between them must still go up, not repeat.
   local pattern = M.analyzePattern(C_MAJOR, figure("C4 E4 F4 G4 E4 C4", 0.25))
   local src = {}
   for i = 1, #pattern.notes do src[i] = pattern.notes[i].pitch end
@@ -349,27 +349,27 @@ do
 end
 
 do
-  -- keepShape leaves a line that already has the right shape alone ...
   local pattern = M.analyzePattern(C_MAJOR, figure("C4 E4 G4 E4", 0.25))
   local tones = { [0] = true, [4] = true, [7] = true }
-  check("keepShape: right shape untouched",
-        M.keepShape(pattern, ps("C4 E4 G4 E4"), tones, {}, C_MAJOR),
+  -- A line that already goes the right way is left exactly as it is.
+  check("fix: right shape untouched",
+        M.fixDirections(pattern, ps("C4 E4 G4 E4"), tones, C_MAJOR),
         ps("C4 E4 G4 E4"))
-  -- ... and turns a flattened or reversed step back the right way, staying
-  -- on the chord where it must.
-  local fixed = M.keepShape(pattern, ps("C4 E4 E4 G4"), tones,
-                            { true, true, true, true }, C_MAJOR)
-  check("keepShape: directions restored", directions(fixed),
-        { "up", "up", "down" })
+  -- A flattened step is repaired by moving one note, onto another chord tone.
+  local fixed = M.fixDirections(pattern, ps("C4 E4 E4 C4"), tones, C_MAJOR)
+  check("fix: directions restored", directions(fixed), { "up", "up", "down" })
+  local moved = 0
+  for i = 1, 4 do if fixed[i] ~= ps("C4 E4 E4 C4")[i] then moved = moved + 1 end end
+  check("fix: one note moved", moved, 1)
   local onChord = true
   for i = 1, #fixed do if not tones[fixed[i] % 12] then onChord = false end end
-  check("keepShape: chord tones stay chord tones", onChord, true)
+  check("fix: chord tones stay chord tones", onChord, true)
 end
 
 do
   -- A broad sweep: random figures of chord tones and scale steps over a
-  -- spread of chords (triads, 7ths, sus, inversions, a bare fifth).  The
-  -- result must take every step the same way as the figure.
+  -- spread of chords (triads, 7ths, sus, inversions, a bare fifth).  No step
+  -- may change direction.
   local seed = 12345
   local function rand(n)
     seed = (seed * 1103515245 + 12345) % 2147483648
@@ -438,19 +438,6 @@ do
   notes[4].endPos = notes[4].startPos + 0.1 * PPQ    -- staccato last note
   local s, len = M.patternLength(notes, 0.25 * PPQ)
   check("staccato figure rounds up to the grid", { s, len }, { 0, PPQ })
-
-  -- A figure that opens after a rest keeps the rest: its time starts on the
-  -- beat, so every copy starts the same distance after the chord's attack.
-  local late = figure("C4 E4 G4", 0.25)
-  for i = 1, #late do
-    late[i].startPos = late[i].startPos + 0.25 * PPQ
-    late[i].endPos = late[i].endPos + 0.25 * PPQ
-  end
-  s, len = M.patternLength(late, 0.25 * PPQ, 0)
-  check("figure after a rest starts on the beat", { s, len }, { 0, PPQ })
-  local pattern = M.analyzePattern(C_MAJOR, late)
-  local out = M.layout(pattern, s, len, ps("D4 F4 A4"), 4 * PPQ, 5 * PPQ)
-  check("copy keeps the rest", out[1].startPos, 4.25 * PPQ)
 end
 
 do
