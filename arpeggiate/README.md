@@ -57,8 +57,8 @@ becomes that B and its 7th uses the chord's own G.
   as written. Degrees it does not spell come from the Key Snap key, so the
   result stays in the key signature.
 - **Chord tones and non-chord tones.** The figure is split into the notes
-  that spell its chord (root, third, fifth, plus a 7th it dwells on, as in
-  an arpeggiated maj7) and its non-chord tones, each read as a *passing* note
+  that spell its chord (root, third, fifth, plus anything it dwells on, such as
+  an arpeggiated 7th) and its non-chord tones, each read as a *passing* note
   (a step in and a step on the same way), a *neighbour* (a step away and back)
   or a *leap* (approached or left by a jump). Each block chord is read the same
   way: its own notes are its chord tones, plus a third and fifth from the key
@@ -77,15 +77,6 @@ becomes that B and its 7th uses the chord's own G.
   repeated notes, no change of direction), leaps before neighbours before
   passing notes, so the line keeps moving rather than turning into a
   mechanical broken chord.
-- **The shape always follows the selection.** As a last step the whole line is
-  checked against the figure: every step goes the same way as the figure's
-  step (up stays up, down stays down, a repeat stays a repeat) and stays as
-  close as possible to the same size, so a step stays a step and a leap stays
-  a leap. Where the mapping would bend that — over a sus chord, after an
-  inversion, or when a decoration becomes a chord tone — the nearest notes of
-  the key or the chord that keep the shape are used instead. The shape wins
-  over keeping a chord tone strictly on the chord, but the non-chord budget
-  above still holds.
 - **Anchoring.** The figure's first note is the anchor. Every figure is moved
   by octaves so it starts as near the anchor as possible. If that is still more
   than `MAX_ANCHOR_JUMP` semitones away, the figure is rebuilt on the inversion
@@ -105,9 +96,6 @@ becomes that B and its 7th uses the chord's own G.
 - With a **time selection** that ends after the figure, only chords starting
   inside it are replaced, and the last one is cut off at its end. Without one,
   every chord after the figure in the item is replaced.
-- **Timing follows the selection too.** The figure's time starts on the beat
-  its first note falls in, so a figure that opens after a short rest (on the
-  "and" of the beat, say) starts the same distance after each chord's attack.
 - A chord **longer than the figure** gets the figure repeated; a shorter chord
   cuts it off. The figure's length is its span rounded up to the grid (at most
   a quarter note), so a staccato last note still repeats on the beat.
@@ -153,8 +141,7 @@ outside REAPER:
 lua5.4 tests/test_arpeggiate.lua
 ```
 
-82 checks covering key snap parsing, root detection, degree reading, sus and
+75 checks covering key snap parsing, root detection, degree reading, sus and
 chromatic chords, chord and non-chord tone analysis, the non-chord budget,
-shape keeping (including a sweep of random figures over 13 chords that must
-never change a step's direction), anchoring and inversions, block-chord
-selection, chord splitting, timing and tiling, and the example above.
+anchoring and inversions, block-chord selection, chord splitting and tiling,
+and the example above.
