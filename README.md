@@ -1,16 +1,18 @@
 # REAPER orchestration ReaScripts
 
-Two REAPER ReaScripts for turning a polyphonic sketch played into an *ensemble*
-patch into a proper divisi string section. Both are MIDI Editor actions, both
-need only stock REAPER (no SWS functions are called, though they run fine
-alongside SWS), and both are single self-contained files.
+REAPER ReaScripts for orchestrating MIDI sketches: two that turn a polyphonic
+sketch played into an *ensemble* patch into a proper divisi string section, and
+one that spreads an arpeggio figure over a chord progression. All are MIDI
+Editor actions, all need only stock REAPER (no SWS functions are called, though
+they run fine alongside SWS), and each is a single self-contained file.
 
 | Folder | Script | What it does |
 |---|---|---|
 | [`orchestrate/`](orchestrate/) | `Orchestrate_selected_notes_to_next_tracks.lua` | Distributes the selected notes by pitch across the MIDI items on the next tracks below the source. |
 | [`legato/`](legato/) | `Orchestrate_and_legato_selected_notes_to_next_tracks.lua` | The same distribution, plus a legato offset: every note that continues a phrase is pulled earlier so it overlaps its predecessor, and its velocity is pushed to 127 to trigger a sample library's legato transitions. |
+| [`arpeggiate/`](arpeggiate/) | `Arpeggiate_selected_pattern_over_following_chords.lua` | Copies a selected figure (arpeggio, broken chord) over the block chords that follow it, keeping its chord tones on each chord's tones and its passing and neighbour notes as decorations, in the Key Snap key. |
 
-Pick one. The legato script is a superset of the orchestrator, so running both
+For the string section, pick one of the first two. The legato script is a superset of the orchestrator, so running both
 on the same material would apply the distribution twice.
 
 Each folder has its own README with install instructions, the configuration
@@ -20,4 +22,5 @@ interpreter without REAPER:
 ```sh
 cd orchestrate && lua5.4 tests/test_voicing.lua
 cd legato      && lua5.4 tests/test_legato.lua
+cd arpeggiate  && lua5.4 tests/test_arpeggiate.lua
 ```
