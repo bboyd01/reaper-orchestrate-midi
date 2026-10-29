@@ -31,15 +31,14 @@ Key snap D major (or B minor), measure 1 selected:
 
 ```
 figure  B4 D5 F#5 B5 | B4 D5 F#5 B5 | B4 D5 A5 B5 | B4 D5 F#5 B5     (Bm, 16ths)
-chords  A4 C#5 E5 A5  (whole note)  →  A4 C#5 E5 A5 | … | A4 C#5 E5 A5 | …
+chords  A4 C#5 E5 A5  (whole note)  →  A4 C#5 E5 A5 | … | A4 C#5 G5 A5 | …
         A4 B4 E5 G5   (whole note)  →  A4 B4  E5 A5 | … | A4 B4  G5 A5 | …
 ```
 
 The figure is root–third–fifth–octave with a 7th (A) as a neighbour in group 3.
-Over A major the same degrees give A–C#–E–A. The A chord has no G, so chord
-tones win and the neighbour lands on E. The second chord has no third but does
-have a B (sus2) and a G: the figure's third becomes that B, and its neighbour
-becomes the chord's own G.
+Over A major the same degrees give A–C#–E–A, with the key's G as the 7th. The
+second chord has no third but does have a B (sus2) and a G: the figure's third
+becomes that B and its 7th uses the chord's own G.
 
 ## How the figure is mapped
 
@@ -52,18 +51,6 @@ becomes the chord's own G.
   chromatic third, a sus2 or sus4 standing in for the third, a 7th — are used
   as written. Degrees it does not spell come from the Key Snap key, so the
   result stays in the key signature.
-- **Chord tones win over the exact shape** (`PRIORITIZE_CHORD_TONES`). After
-  that mapping, every note moves to a tone of the new chord: its own notes,
-  plus a third and fifth from the key if it does not play them. The whole line
-  is chosen at once, keeping it as close as possible to the mapped figure while
-  every step goes the way the figure's step went (up stays up, down stays down,
-  a repeat stays a repeat). Passing and neighbour notes become chord tones, so
-  the chord is clearly heard even under a long, busy figure. Because a step now
-  moves by a chord tone instead of a scale step, a stepwise run covers a
-  slightly wider range than in the original.
-- **Long figures** are read by how long each note sounds in total, so the notes
-  the figure keeps returning to decide its chord, not a passing note that
-  happens to be the lowest.
 - **Anchoring.** The figure's first note is the anchor. Every figure is moved
   by octaves so it starts as near the anchor as possible. If that is still more
   than `MAX_ANCHOR_JUMP` semitones away, the figure is rebuilt on the inversion
@@ -94,7 +81,6 @@ The `CONFIG` table at the top of the script:
 |---|---|---|
 | `MAX_ANCHOR_JUMP` | `2` | Semitones a figure may start from the anchor before it is inverted. Raise it to invert less often. |
 | `ALLOW_INVERSIONS` | `true` | `false` keeps every figure on the chord role it was written on, moving only by octaves. |
-| `PRIORITIZE_CHORD_TONES` | `true` | Snap every note to the chord's tones while keeping the figure's direction. `false` keeps the figure's exact scale degrees, passing and neighbour notes included. |
 | `KEYSWITCH_MAX_PITCH` | `11` | Notes at or below this pitch are ignored and left alone. |
 | `ONSET_TOLERANCE_QN` | `0.03` | Chord notes starting within this many quarter notes count as one chord. |
 | `RESPECT_TIME_SELECTION` | `true` | Limit the chords replaced to the time selection, when there is one. |
@@ -105,6 +91,8 @@ The `CONFIG` table at the top of the script:
 - **Scales other than seven-note ones** (pentatonic, blues, chromatic) are
   replaced by the major or natural minor scale on the same root, whichever
   their third suggests: the degree mapping thinks in thirds.
+- **A sus chord with a figure that uses both the 2nd and the 3rd** maps both to
+  the chord's sus note, so two neighbouring figure notes can come out the same.
 - **The figure is read as one chord.** A figure that itself changes harmony
   part way through will be read as one larger chord.
 
@@ -117,6 +105,6 @@ outside REAPER:
 lua5.4 tests/test_arpeggiate.lua
 ```
 
-72 checks covering key snap parsing, root detection, degree reading, sus and
-chromatic chords, chord-tone snapping, anchoring and inversions, chord
-splitting and tiling, and the example above.
+53 checks covering key snap parsing, root detection, degree reading, sus and
+chromatic chords, anchoring and inversions, chord splitting and tiling, and the
+example above.

@@ -11,7 +11,7 @@
 
     figure   B4 D5 F#5 B5 | B4 D5 A5 B5        (B minor, 7th as a neighbour)
     chords   A4 C#5 E5 A5 | A4 B4 E5 G5
-    result   A4 C#5 E5 A5 | A4 C#5 E5 A5       over the A chord
+    result   A4 C#5 E5 A5 | A4 C#5 G5 A5       over the A chord
              A4 B4  E5 A5 | A4 B4  G5 A5       over the Asus2(add7) chord
 
   - The key comes from the MIDI editor's Key Snap setting.  Scale degrees the
@@ -19,9 +19,6 @@
     stays in the key signature.
   - The target chord's own notes win over the key: a chromatic chord, or a
     sus chord with no third, is followed as written.
-  - Chord tones win over the figure's exact shape: a passing or neighbour
-    note lands on the nearest note of the new chord that keeps the figure's
-    direction (PRIORITIZE_CHORD_TONES).
   - Every figure starts close to the first note of the selection.  If the
     chord's own version of that note would jump more than MAX_ANCHOR_JUMP
     semitones, the figure is rebuilt on the inversion that starts nearest.
@@ -53,14 +50,6 @@ local CONFIG = {
   -- Set to false to never invert: every figure keeps the chord role it was
   -- written on and only moves by octaves.
   ALLOW_INVERSIONS = true,
-
-  -- Chord tones over shape.  After the figure is mapped onto a chord, every
-  -- note is moved to the nearest note of that chord (its own notes, plus a
-  -- third and fifth from the key if it does not spell them), choosing the
-  -- whole line at once so the figure keeps its ups and downs.  Passing and
-  -- neighbour notes therefore become chord tones.  Set to false to keep the
-  -- figure's exact scale degrees, non-chord tones included.
-  PRIORITIZE_CHORD_TONES = true,
 
   -- Notes at or below this MIDI pitch are articulation keyswitches: they are
   -- neither read as part of the figure or a chord nor touched.
@@ -163,53 +152,30 @@ local ROOT_WEIGHTS = {
   [0] = 0, 0, 0.5, 2.5, 2.5, 0.5, 1, 3, 0, 0.5, 1, 1,
 }
 local BASS_BONUS = 2
-local SELF_WEIGHT = 1
 
 -- Picks the most likely root of a set of pitches by stacking thirds: every
 -- candidate pitch class scores the intervals the others make above it, plus a
 -- bonus for being in the bass.  Ties go to the bass, then to the candidate
 -- that appears lowest.
---
--- `weights` (optional, parallel to `pitches`) is how much each note counts,
--- e.g. its duration.  A pitch class counts in proportion to its total weight
--- against the heaviest one, so in a long figure the notes it keeps returning
--- to decide the chord, not a passing note heard once.
-function M.detectRoot(pitches, weights)
+function M.detectRoot(pitches)
   if #pitches == 0 then return nil end
-  local order = {}
-  for i = 1, #pitches do order[i] = i end
-  table.sort(order, function(a, b) return pitches[a] < pitches[b] end)
+  local sorted = {}
+  for i = 1, #pitches do sorted[i] = pitches[i] end
+  table.sort(sorted)
 
-  local pcs, total = {}, {}
-  for k = 1, #order do
-    local i = order[k]
-    local pc = pcOf(pitches[i])
-    if not total[pc] then pcs[#pcs + 1] = pc; total[pc] = 0 end
-    total[pc] = total[pc] + (weights and weights[i] or 1)
+  local pcs, seen = {}, {}
+  for i = 1, #sorted do
+    local pc = pcOf(sorted[i])
+    if not seen[pc] then seen[pc] = true; pcs[#pcs + 1] = pc end
   end
   local bass = pcs[1]
 
-  local heaviest = 0
-  for j = 1, #pcs do
-    if total[pcs[j]] > heaviest then heaviest = total[pcs[j]] end
-  end
-
-  local function share(pc)
-    return heaviest > 0 and total[pc] / heaviest or 1
-  end
-
-  -- A candidate also scores for being heard itself, and the bass bonus only
-  -- counts as much as the bass note is heard: a passing note that happens to
-  -- be a figure's lowest must not outvote the note the figure keeps
-  -- returning to.  With equal weights (a block chord) both are the same for
-  -- every candidate, so only the intervals and the bass decide.
   local best, bestScore = nil, -math.huge
   for i = 1, #pcs do
     local cand = pcs[i]
-    local score = SELF_WEIGHT * share(cand)
-    if cand == bass then score = score + BASS_BONUS * share(bass) end
+    local score = cand == bass and BASS_BONUS or 0
     for j = 1, #pcs do
-      score = score + ROOT_WEIGHTS[(pcs[j] - cand) % 12] * share(pcs[j])
+      score = score + ROOT_WEIGHTS[(pcs[j] - cand) % 12]
     end
     if score > bestScore then best, bestScore = cand, score end
   end
@@ -251,10 +217,9 @@ end
 
 -- Reads a chord (or a figure, which outlines one) against the key.  Returns
 -- { rootPc, rootIdx, stepPc = { [step] = pc } } with the pitch class the chord
--- actually uses for each step it spells, and `pcs`, its distinct pitch
--- classes.  `weights` is passed on to detectRoot.
-function M.analyzeChord(scale, pitches, weights)
-  local rootPc = M.detectRoot(pitches, weights)
+-- actually uses for each step it spells.
+function M.analyzeChord(scale, pitches)
+  local rootPc = M.detectRoot(pitches)
   if not rootPc then return nil end
 
   local pcs, seen = {}, {}
@@ -299,7 +264,7 @@ function M.analyzeChord(scale, pitches, weights)
     end
   end
 
-  return { rootPc = rootPc, rootIdx = rootIdx, stepPc = stepPc, pcs = pcs }
+  return { rootPc = rootPc, rootIdx = rootIdx, stepPc = stepPc }
 end
 
 -- The pitch class to use for every step of the chord the figure is copied
@@ -315,85 +280,6 @@ function M.targetStepPcs(scale, chord)
     end
     if pc == nil then pc = scalePc(scale, chord.rootIdx + step) end
     out[step] = pc
-  end
-  return out
-end
-
--- The pitch classes a figure may land on when chord tones win: everything the
--- chord plays, plus its root, third and fifth as resolved above, so a bare
--- fifth or a single note still gets a full triad from the key.  Returns a set
--- { [pc] = true }.
-function M.chordTonePcs(scale, chord)
-  local stepPcs = M.targetStepPcs(scale, chord)
-  local set = {}
-  for i = 1, #chord.pcs do set[chord.pcs[i]] = true end
-  set[stepPcs[0]], set[stepPcs[2]], set[stepPcs[4]] = true, true, true
-  return set
-end
-
--- Moves every note of a mapped figure onto a chord tone.
---
--- `ideal` is the figure mapped degree by degree, `source` the figure's own
--- pitches (both in playing order) and `tones` a pitch class set.  Each note
--- may take any chord tone within an octave of its ideal pitch.  The line is
--- chosen as a whole (dynamic programming over the notes) to keep it as close
--- to `ideal` as possible while every step goes the same way the figure's
--- step did: up stays up, down stays down, a repeat stays a repeat.  Breaking
--- that is allowed only at a cost, so a cramped chord still gets an answer.
-local REVERSAL_COST = 24  -- an up step becoming a down step, or vice versa
-local FLATTEN_COST = 8    -- a step becoming a repeat, or a repeat a step
-
-local function sign(x)
-  if x > 0 then return 1 elseif x < 0 then return -1 end
-  return 0
-end
-
-function M.snapToChordTones(ideal, source, tones)
-  local n = #ideal
-  if n == 0 then return {} end
-
-  local cands = {}
-  for i = 1, n do
-    local list = {}
-    for p = ideal[i] - 12, ideal[i] + 12 do
-      if p >= 0 and p <= 127 and tones[pcOf(p)] then list[#list + 1] = p end
-    end
-    if #list == 0 then list[1] = ideal[i] end
-    cands[i] = list
-  end
-
-  -- cost[i][k]: cheapest line through note i ending on candidate k.
-  local cost, from = { {} }, { {} }
-  for k = 1, #cands[1] do cost[1][k] = math.abs(cands[1][k] - ideal[1]) end
-
-  for i = 2, n do
-    cost[i], from[i] = {}, {}
-    local want = sign(source[i] - source[i - 1])
-    for k = 1, #cands[i] do
-      local p = cands[i][k]
-      local best, bestJ = math.huge, 1
-      for j = 1, #cands[i - 1] do
-        local got = sign(p - cands[i - 1][j])
-        local c = cost[i - 1][j]
-        if got ~= want then
-          if got == 0 or want == 0 then c = c + FLATTEN_COST
-          else c = c + REVERSAL_COST end
-        end
-        if c < best then best, bestJ = c, j end
-      end
-      cost[i][k] = best + math.abs(p - ideal[i])
-      from[i][k] = bestJ
-    end
-  end
-
-  local k, best = 1, math.huge
-  for j = 1, #cands[n] do
-    if cost[n][j] < best then k, best = j, cost[n][j] end
-  end
-  local out = {}
-  for i = n, 1, -1 do
-    out[i] = cands[i][k]
-    if i > 1 then k = from[i][k] end
   end
   return out
 end
@@ -438,12 +324,9 @@ function M.analyzePattern(scale, notes)
     return (a.order or 0) < (b.order or 0)
   end)
 
-  local pitches, lengths = {}, {}
-  for i = 1, #sorted do
-    pitches[i] = sorted[i].pitch
-    lengths[i] = math.max(sorted[i].endPos - sorted[i].startPos, 1)
-  end
-  local chord = M.analyzeChord(scale, pitches, lengths)
+  local pitches = {}
+  for i = 1, #sorted do pitches[i] = sorted[i].pitch end
+  local chord = M.analyzeChord(scale, pitches)
   local stepPcs = M.sourceStepPcs(scale, chord)
   local off = stepOffsets(stepPcs, chord.rootPc)
 
@@ -513,8 +396,7 @@ end
 
 -- The heart of the script: the figure rebuilt on one chord.
 --
--- opts: { maxAnchorJump, allowInversions, chordTones }
--- `chordTones` (default true) snaps the result onto the chord's tones.
+-- opts: { maxAnchorJump, allowInversions }
 -- Returns the pitches in the figure's playing order, and the inversion used.
 function M.realize(scale, pattern, chordPitches, opts)
   opts = opts or {}
@@ -522,23 +404,12 @@ function M.realize(scale, pattern, chordPitches, opts)
   local chord = M.analyzeChord(scale, chordPitches)
   local stepPcs = M.targetStepPcs(scale, chord)
 
-  local tones, source
-  if opts.chordTones ~= false then
-    tones = M.chordTonePcs(scale, chord)
-    source = {}
-    for i = 1, #pattern.notes do source[i] = pattern.notes[i].pitch end
-  end
-
   local best, bestJump, bestRot = nil, math.huge, 0
   local rots = opts.allowInversions == false and { 0 } or { 0, -1, 1, -2, 2 }
   for i = 1, #rots do
     local rot = rots[i]
     local pitches, jump = nearestOctave(
       buildPitches(pattern, stepPcs, chord.rootPc, rot), pattern.anchor)
-    if tones then
-      pitches = M.snapToChordTones(pitches, source, tones)
-      jump = math.abs(pitches[1] - pattern.anchor)
-    end
     if rot == 0 and jump <= maxJump then
       best, bestRot = pitches, 0
       break
@@ -750,7 +621,6 @@ local function run()
   local opts = {
     maxAnchorJump = CONFIG.MAX_ANCHOR_JUMP,
     allowInversions = CONFIG.ALLOW_INVERSIONS,
-    chordTones = CONFIG.PRIORITIZE_CHORD_TONES,
   }
 
   local newNotes, doomed = {}, {}

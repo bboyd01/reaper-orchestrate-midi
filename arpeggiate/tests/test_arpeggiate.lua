@@ -149,11 +149,7 @@ do
 
   local a = M.realize(D_MAJOR, pattern, ps("A4 C#5 E5 A5"))
   check("over A: groups 1, 2, 4", { a[1], a[2], a[3], a[4] }, ps("A4 C#5 E5 A5"))
-  -- G is not in the A chord, so chord tones win: the neighbour becomes E.
-  check("over A: group 3's neighbour becomes a chord tone",
-        { a[9], a[10], a[11], a[12] }, ps("A4 C#5 E5 A5"))
-  a = M.realize(D_MAJOR, pattern, ps("A4 C#5 E5 A5"), { chordTones = false })
-  check("chord tones off: group 3 takes the key's 7th",
+  check("over A: group 3 takes the key's 7th",
         { a[9], a[10], a[11], a[12] }, ps("A4 C#5 G5 A5"))
 
   local s = M.realize(D_MAJOR, pattern, ps("A4 B4 E5 G5"))
@@ -207,79 +203,13 @@ print("-- chromatic notes in the figure")
 do
   -- Leading-tone neighbour: B A# B over Bm in D major.
   local pattern = M.analyzePattern(D_MAJOR, figure("B4 A#4 B4 D5 F#5", 0.25))
-  check("passing lowest note does not become the root",
-        pattern.chord.rootPc, 11)
   local r = M.realize(D_MAJOR, pattern, ps("E4 G4 B4"),
-                      { allowInversions = false, chordTones = false })
+                      { allowInversions = false })
   check("leading tone stays a leading tone", r, ps("E5 D#5 E5 G5 B5"))
 
   -- Inverted onto the fifth, it becomes the fifth's leading tone.
-  r = M.realize(D_MAJOR, pattern, ps("E4 G4 B4"), { chordTones = false })
-  check("inverted: neighbour follows its chord tone", r, ps("B4 A#4 B4 E5 G5"))
-
-  -- With chord tones winning, the neighbour drops to the chord tone below.
   r = M.realize(D_MAJOR, pattern, ps("E4 G4 B4"))
-  check("chord tones: neighbour becomes the tone below", r, ps("B4 G4 B4 E5 G5"))
-end
-
---=============================================================================
-print("-- chord tones over shape")
---=============================================================================
-
-do
-  -- Two bars of 8ths over C with passing and neighbour notes.
-  local pattern = M.analyzePattern(C_MAJOR, figure(
-    "C4 D4 E4 G4  A4 G4 E4 D4  C4 E4 F4 G4  C5 B4 G4 E4", 0.5))
-  check("long figure is read as C", pattern.chord.rootPc, 0)
-
-  local function onlyTones(pitches, pcs)
-    for i = 1, #pitches do
-      if not pcs[pitches[i] % 12] then return false end
-    end
-    return true
-  end
-  local function sameContour(a, b)
-    for i = 2, #a do
-      local x, y = a[i] - a[i - 1], b[i] - b[i - 1]
-      if (x > 0) ~= (y > 0) or (x < 0) ~= (y < 0) then return false end
-    end
-    return true
-  end
-  local src = {}
-  for i = 1, #pattern.notes do src[i] = pattern.notes[i].pitch end
-
-  local chords = {
-    { "G",   ps("G3 B3 D4"),     { [7] = true, [11] = true, [2] = true } },
-    { "Am",  ps("A3 C4 E4"),     { [9] = true, [0] = true, [4] = true } },
-    { "F",   ps("F3 A3 C4"),     { [5] = true, [9] = true, [0] = true } },
-    { "Dm7", ps("D3 A3 C4 F4"),  { [2] = true, [5] = true, [9] = true, [0] = true } },
-  }
-  for _, c in ipairs(chords) do
-    local r = M.realize(C_MAJOR, pattern, c[2])
-    check(c[1] .. ": every note is a chord tone", onlyTones(r, c[3]), true)
-    check(c[1] .. ": contour kept", sameContour(r, src), true)
-    check(c[1] .. ": starts near the anchor",
-          math.abs(r[1] - pattern.anchor) <= 2, true)
-  end
-end
-
-do
-  -- A bare fifth still gets a third, from the key.
-  local chord = M.analyzeChord(C_MAJOR, ps("A3 E4"))
-  local tones = M.chordTonePcs(C_MAJOR, chord)
-  check("power chord tones include the key's third",
-        { tones[9], tones[0], tones[4], tones[2] }, { true, true, true, nil })
-end
-
-do
-  -- The line is chosen as a whole: a neighbour snaps to the tone that keeps
-  -- the next step cheap, not just to the nearest.
-  local out = M.snapToChordTones(ps("A4 C#5 G5 A5"), ps("B4 D5 A5 B5"),
-                                 { [9] = true, [1] = true, [4] = true })
-  check("neighbour picks the tone that keeps the line", out, ps("A4 C#5 E5 A5"))
-  out = M.snapToChordTones(ps("C4 C4 E4"), ps("C4 C4 E4"),
-                           { [0] = true, [4] = true, [7] = true })
-  check("repeats stay repeats", out, ps("C4 C4 E4"))
+  check("inverted: neighbour follows its chord tone", r, ps("B4 A#4 B4 E5 G5"))
 end
 
 --=============================================================================
