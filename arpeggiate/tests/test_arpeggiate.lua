@@ -367,6 +367,17 @@ do
 end
 
 do
+  -- The repair keeps the figure's step sizes.  Here the mapping turns the
+  -- second step around (G4 B3 D4); fixing it by dropping D4 to G3 would then
+  -- leap an octave back up to G4.  The fix must move by adjacent chord tones,
+  -- as the figure does.
+  local pattern = M.analyzePattern(C_MAJOR, figure("G4 E4 D4 E4 D4 E4", 0.25))
+  local r = M.realize(C_MAJOR, pattern, ps("G3 B3 D4"))
+  check("repair keeps steps to adjacent chord tones", r,
+        ps("B4 G4 D4 G4 D4 G4"))
+end
+
+do
   -- A broad sweep: random figures of chord tones and scale steps over a
   -- spread of chords (triads, 7ths, sus, inversions, a bare fifth).  No step
   -- may change direction.

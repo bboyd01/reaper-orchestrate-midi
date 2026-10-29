@@ -83,7 +83,10 @@ becomes that B and its 7th uses the chord's own G.
   sus chord the figure's 3rd and 4th land on the same note, and an inversion
   can squeeze a gap), a final repair moves as few notes as possible, as
   little as possible. Notes on a correct step are never touched, and a chord
-  tone only ever moves to another chord tone.
+  tone only ever moves to another chord tone. The steps either side of a
+  repaired note keep the figure's own size counted in chord tones, so a step
+  to the next chord tone stays one, rather than leaping over a chord tone or
+  an octave.
 - **Anchoring.** The figure's first note is the anchor. Every figure is moved
   by octaves so it starts as near the anchor as possible. If that is still more
   than `MAX_ANCHOR_JUMP` semitones away, the figure is rebuilt on the inversion
@@ -148,7 +151,7 @@ outside REAPER:
 lua5.4 tests/test_arpeggiate.lua
 ```
 
-81 checks covering key snap parsing, root detection, degree reading, sus and
+82 checks covering key snap parsing, root detection, degree reading, sus and
 chromatic chords, chord and non-chord tone analysis, the non-chord budget,
 up/down order (including a sweep of random figures over 13 chords that must
 never change a step's direction), anchoring and inversions, block-chord
