@@ -252,9 +252,9 @@ do
   -- pass, the neighbour still neighbours.
   local r = M.realize(C_MAJOR, pattern, ps("F3 A3 C4"))
   -- (Inverted onto C: the falling third E-D-C became the falling fourth
-  -- F-?-C, and the passing note keeps its step from the F.)
+  -- F-?-C; the passing D splits it as evenly as the figure's two steps.)
   check("over F: decorations kept", r, ps(
-    "C4 D4 F4 A4  B4 A4 F4 E4  C4 F4 G4 A4  C5 B4 A4 F4"))
+    "C4 D4 F4 A4  B4 A4 F4 D4  C4 F4 G4 A4  C5 B4 A4 F4"))
   check("over F: at most the figure's share outside", outside(C_MAJOR, r,
         ps("F3 A3 C4")) <= 5, true)
 
@@ -327,6 +327,90 @@ do
 end
 
 --=============================================================================
+print("-- the result follows the figure's shape")
+--=============================================================================
+
+local function directions(r)
+  local out = {}
+  for i = 2, #r do
+    out[i - 1] = r[i] > r[i - 1] and "up" or r[i] < r[i - 1] and "down" or "same"
+  end
+  return out
+end
+
+do
+  -- Over a sus4 chord the figure's 3rd and 4th both map to the 4th; the
+  -- step between them must still be a step up, not a repeated note.
+  local pattern = M.analyzePattern(C_MAJOR, figure("C4 E4 F4 G4 E4 C4", 0.25))
+  local src = {}
+  for i = 1, #pattern.notes do src[i] = pattern.notes[i].pitch end
+  local r = M.realize(C_MAJOR, pattern, ps("D4 G4 A4"))
+  check("sus4: same ups and downs", directions(r), directions(src))
+end
+
+do
+  -- keepShape leaves a line that already has the right shape alone ...
+  local pattern = M.analyzePattern(C_MAJOR, figure("C4 E4 G4 E4", 0.25))
+  local tones = { [0] = true, [4] = true, [7] = true }
+  check("keepShape: right shape untouched",
+        M.keepShape(pattern, ps("C4 E4 G4 E4"), tones, {}, C_MAJOR),
+        ps("C4 E4 G4 E4"))
+  -- ... and turns a flattened or reversed step back the right way, staying
+  -- on the chord where it must.
+  local fixed = M.keepShape(pattern, ps("C4 E4 E4 G4"), tones,
+                            { true, true, true, true }, C_MAJOR)
+  check("keepShape: directions restored", directions(fixed),
+        { "up", "up", "down" })
+  local onChord = true
+  for i = 1, #fixed do if not tones[fixed[i] % 12] then onChord = false end end
+  check("keepShape: chord tones stay chord tones", onChord, true)
+end
+
+do
+  -- A broad sweep: random figures of chord tones and scale steps over a
+  -- spread of chords (triads, 7ths, sus, inversions, a bare fifth).  The
+  -- result must take every step the same way as the figure.
+  local seed = 12345
+  local function rand(n)
+    seed = (seed * 1103515245 + 12345) % 2147483648
+    return seed % n + 1
+  end
+  local chordTone = { [0] = true, [4] = true, [7] = true }
+  local inKey = { [0] = true, [2] = true, [4] = true, [5] = true,
+                  [7] = true, [9] = true, [11] = true }
+  local chords = {
+    ps("C4 E4 G4"), ps("D4 F4 A4"), ps("E4 G4 B4"), ps("F3 A3 C4"),
+    ps("G3 B3 D4"), ps("A3 C4 E4"), ps("B3 D4 F4"), ps("G3 B3 D4 F4"),
+    ps("D4 F4 A4 C5"), ps("A3 B3 E4"), ps("D4 G4 A4"), ps("E3 A3 C4"),
+    ps("C3 G3"),
+  }
+  local wrong, steps = 0, 0
+  for _ = 1, 60 do
+    local list, pitch = {}, ({ 60, 64, 67 })[rand(3)]
+    for i = 1, 6 + rand(10) do
+      list[i] = note((i - 1) * 0.25, 0.25, pitch, i)
+      local dir = rand(2) == 1 and -1 or 1
+      local ok = rand(10) <= 6 and chordTone or inKey
+      repeat pitch = pitch + dir until ok[pitch % 12]
+      if pitch < 52 then pitch = pitch + 12 elseif pitch > 84 then pitch = pitch - 12 end
+    end
+    local pattern = M.analyzePattern(C_MAJOR, list)
+    local src = {}
+    for i = 1, #pattern.notes do src[i] = pattern.notes[i].pitch end
+    local want = directions(src)
+    for c = 1, #chords do
+      local got = directions(M.realize(C_MAJOR, pattern, chords[c]))
+      for i = 1, #want do
+        steps = steps + 1
+        if got[i] ~= want[i] then wrong = wrong + 1 end
+      end
+    end
+  end
+  check(string.format("sweep: steps that change direction (of %d)", steps),
+        wrong, 0)
+end
+
+--=============================================================================
 print("-- which notes are chords")
 --=============================================================================
 
@@ -354,6 +438,19 @@ do
   notes[4].endPos = notes[4].startPos + 0.1 * PPQ    -- staccato last note
   local s, len = M.patternLength(notes, 0.25 * PPQ)
   check("staccato figure rounds up to the grid", { s, len }, { 0, PPQ })
+
+  -- A figure that opens after a rest keeps the rest: its time starts on the
+  -- beat, so every copy starts the same distance after the chord's attack.
+  local late = figure("C4 E4 G4", 0.25)
+  for i = 1, #late do
+    late[i].startPos = late[i].startPos + 0.25 * PPQ
+    late[i].endPos = late[i].endPos + 0.25 * PPQ
+  end
+  s, len = M.patternLength(late, 0.25 * PPQ, 0)
+  check("figure after a rest starts on the beat", { s, len }, { 0, PPQ })
+  local pattern = M.analyzePattern(C_MAJOR, late)
+  local out = M.layout(pattern, s, len, ps("D4 F4 A4"), 4 * PPQ, 5 * PPQ)
+  check("copy keeps the rest", out[1].startPos, 4.25 * PPQ)
 end
 
 do
