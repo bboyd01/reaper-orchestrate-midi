@@ -656,6 +656,72 @@ function M.balance(pattern, pitches, tones, maxShare, squeezed)
   return out
 end
 
+-- Makes every step of the result go the way the figure's step went: up
+-- stays up, down stays down, a repeat stays a repeat.
+--
+-- This only repairs; it does not reshape.  Notes are left exactly where the
+-- mapping put them unless a step around them goes the wrong way, and then
+-- as few notes as possible move, as little as possible (the whole line is
+-- weighed at once, by dynamic programming over the notes).  A chord tone may
+-- only move to another chord tone, so no chord tone is ever given up; a
+-- non-chord tone may move to another note of the key or onto the chord.
+local MOVE_COST = 10   -- per note that moves at all, so fewer notes move
+local FIX_WINDOW = 12  -- how far a note may move to fix a step
+
+function M.fixDirections(pattern, pitches, tones, scale)
+  local notes = pattern.notes
+  local n = #pitches
+  if n < 2 then return pitches end
+
+  local inKey = {}
+  for i = 1, #scale.pcs do inKey[scale.pcs[i]] = true end
+
+  local cands = {}
+  for i = 1, n do
+    local old = pitches[i]
+    local isTone = tones[pcOf(old)]
+    local list = { { pitch = old, cost = 0 } }
+    for p = old - FIX_WINDOW, old + FIX_WINDOW do
+      local pc = pcOf(p)
+      if p ~= old and p >= 0 and p <= 127
+         and (tones[pc] or (not isTone and inKey[pc])) then
+        list[#list + 1] = { pitch = p, cost = MOVE_COST + math.abs(p - old) }
+      end
+    end
+    cands[i] = list
+  end
+
+  local cost, from = { {} }, { {} }
+  for k = 1, #cands[1] do cost[1][k] = cands[1][k].cost end
+  for i = 2, n do
+    cost[i], from[i] = {}, {}
+    local want = sign(notes[i].pitch - notes[i - 1].pitch)
+    for k = 1, #cands[i] do
+      local p = cands[i][k].pitch
+      local best, bestJ = math.huge, 1
+      for j = 1, #cands[i - 1] do
+        local c = cost[i - 1][j]
+        -- Effectively forbidden: any number of moved notes is cheaper.
+        if sign(p - cands[i - 1][j].pitch) ~= want then c = c + 1e6 end
+        if c < best then best, bestJ = c, j end
+      end
+      cost[i][k] = best + cands[i][k].cost
+      from[i][k] = bestJ
+    end
+  end
+
+  local k, best = 1, math.huge
+  for j = 1, #cands[n] do
+    if cost[n][j] < best then k, best = j, cost[n][j] end
+  end
+  local out = {}
+  for i = n, 1, -1 do
+    out[i] = cands[i][k].pitch
+    if i > 1 then k = from[i][k] end
+  end
+  return out
+end
+
 -- The heart of the script: the figure rebuilt on one chord.
 --
 -- opts: { maxAnchorJump, allowInversions, maxNctShare }
@@ -682,8 +748,10 @@ function M.realize(scale, pattern, chordPitches, opts)
     end
   end
 
-  best = M.balance(pattern, best, M.chordTonePcs(scale, chord),
-                   opts.maxNctShare or 0.5, bestSqueezed)
+  local tones = M.chordTonePcs(scale, chord)
+  best = M.balance(pattern, best, tones, opts.maxNctShare or 0.5,
+                   bestSqueezed)
+  best = M.fixDirections(pattern, best, tones, scale)
 
   for i = 1, #best do
     if best[i] < 0 then best[i] = best[i] + 12 * math.ceil(-best[i] / 12) end

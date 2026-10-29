@@ -77,6 +77,13 @@ becomes that B and its 7th uses the chord's own G.
   repeated notes, no change of direction), leaps before neighbours before
   passing notes, so the line keeps moving rather than turning into a
   mechanical broken chord.
+- **Up and down always follow the figure.** Every step goes the same way as
+  the figure's step: up stays up, down stays down, a repeat stays a repeat.
+  The mapping almost always does this by itself; where it would not (over a
+  sus chord the figure's 3rd and 4th land on the same note, and an inversion
+  can squeeze a gap), a final repair moves as few notes as possible, as
+  little as possible. Notes on a correct step are never touched, and a chord
+  tone only ever moves to another chord tone.
 - **Anchoring.** The figure's first note is the anchor. Every figure is moved
   by octaves so it starts as near the anchor as possible. If that is still more
   than `MAX_ANCHOR_JUMP` semitones away, the figure is rebuilt on the inversion
@@ -141,7 +148,8 @@ outside REAPER:
 lua5.4 tests/test_arpeggiate.lua
 ```
 
-75 checks covering key snap parsing, root detection, degree reading, sus and
+81 checks covering key snap parsing, root detection, degree reading, sus and
 chromatic chords, chord and non-chord tone analysis, the non-chord budget,
-anchoring and inversions, block-chord selection, chord splitting and tiling,
-and the example above.
+up/down order (including a sweep of random figures over 13 chords that must
+never change a step's direction), anchoring and inversions, block-chord
+selection, chord splitting and tiling, and the example above.

@@ -327,6 +327,90 @@ do
 end
 
 --=============================================================================
+print("-- up and down follow the figure")
+--=============================================================================
+
+local function directions(r)
+  local out = {}
+  for i = 2, #r do
+    out[i - 1] = r[i] > r[i - 1] and "up" or r[i] < r[i - 1] and "down" or "same"
+  end
+  return out
+end
+
+do
+  -- Over a sus4 chord the figure's 3rd and 4th both map to the 4th; the step
+  -- between them must still go up, not repeat.
+  local pattern = M.analyzePattern(C_MAJOR, figure("C4 E4 F4 G4 E4 C4", 0.25))
+  local src = {}
+  for i = 1, #pattern.notes do src[i] = pattern.notes[i].pitch end
+  local r = M.realize(C_MAJOR, pattern, ps("D4 G4 A4"))
+  check("sus4: same ups and downs", directions(r), directions(src))
+end
+
+do
+  local pattern = M.analyzePattern(C_MAJOR, figure("C4 E4 G4 E4", 0.25))
+  local tones = { [0] = true, [4] = true, [7] = true }
+  -- A line that already goes the right way is left exactly as it is.
+  check("fix: right shape untouched",
+        M.fixDirections(pattern, ps("C4 E4 G4 E4"), tones, C_MAJOR),
+        ps("C4 E4 G4 E4"))
+  -- A flattened step is repaired by moving one note, onto another chord tone.
+  local fixed = M.fixDirections(pattern, ps("C4 E4 E4 C4"), tones, C_MAJOR)
+  check("fix: directions restored", directions(fixed), { "up", "up", "down" })
+  local moved = 0
+  for i = 1, 4 do if fixed[i] ~= ps("C4 E4 E4 C4")[i] then moved = moved + 1 end end
+  check("fix: one note moved", moved, 1)
+  local onChord = true
+  for i = 1, #fixed do if not tones[fixed[i] % 12] then onChord = false end end
+  check("fix: chord tones stay chord tones", onChord, true)
+end
+
+do
+  -- A broad sweep: random figures of chord tones and scale steps over a
+  -- spread of chords (triads, 7ths, sus, inversions, a bare fifth).  No step
+  -- may change direction.
+  local seed = 12345
+  local function rand(n)
+    seed = (seed * 1103515245 + 12345) % 2147483648
+    return seed % n + 1
+  end
+  local chordTone = { [0] = true, [4] = true, [7] = true }
+  local inKey = { [0] = true, [2] = true, [4] = true, [5] = true,
+                  [7] = true, [9] = true, [11] = true }
+  local chords = {
+    ps("C4 E4 G4"), ps("D4 F4 A4"), ps("E4 G4 B4"), ps("F3 A3 C4"),
+    ps("G3 B3 D4"), ps("A3 C4 E4"), ps("B3 D4 F4"), ps("G3 B3 D4 F4"),
+    ps("D4 F4 A4 C5"), ps("A3 B3 E4"), ps("D4 G4 A4"), ps("E3 A3 C4"),
+    ps("C3 G3"),
+  }
+  local wrong, steps = 0, 0
+  for _ = 1, 60 do
+    local list, pitch = {}, ({ 60, 64, 67 })[rand(3)]
+    for i = 1, 6 + rand(10) do
+      list[i] = note((i - 1) * 0.25, 0.25, pitch, i)
+      local dir = rand(2) == 1 and -1 or 1
+      local ok = rand(10) <= 6 and chordTone or inKey
+      repeat pitch = pitch + dir until ok[pitch % 12]
+      if pitch < 52 then pitch = pitch + 12 elseif pitch > 84 then pitch = pitch - 12 end
+    end
+    local pattern = M.analyzePattern(C_MAJOR, list)
+    local src = {}
+    for i = 1, #pattern.notes do src[i] = pattern.notes[i].pitch end
+    local want = directions(src)
+    for c = 1, #chords do
+      local got = directions(M.realize(C_MAJOR, pattern, chords[c]))
+      for i = 1, #want do
+        steps = steps + 1
+        if got[i] ~= want[i] then wrong = wrong + 1 end
+      end
+    end
+  end
+  check(string.format("sweep: steps that change direction (of %d)", steps),
+        wrong, 0)
+end
+
+--=============================================================================
 print("-- which notes are chords")
 --=============================================================================
 
