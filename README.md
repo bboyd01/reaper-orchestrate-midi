@@ -10,7 +10,7 @@ they run fine alongside SWS), and each is a single self-contained file.
 |---|---|---|
 | [`orchestrate/`](orchestrate/) | `Orchestrate_selected_notes_to_next_tracks.lua` | Distributes the selected notes by pitch across the MIDI items on the next tracks below the source. |
 | [`legato/`](legato/) | `Orchestrate_and_legato_selected_notes_to_next_tracks.lua` | The same distribution, plus a legato offset: every note that continues a phrase is pulled earlier so it overlaps its predecessor, and its velocity is pushed to 127 to trigger a sample library's legato transitions. |
-| [`arpeggiate/`](arpeggiate/) | `Arpeggiate_selected_pattern_over_following_chords.lua` | Copies a selected figure (arpeggio, broken chord) over the chords that follow it, mapping its scale degrees onto each chord in the Key Snap key. |
+| [`arpeggiate/`](arpeggiate/) | `Arpeggiate_selected_pattern_over_following_chords.lua` | Copies a selected figure (arpeggio, broken chord) over the block chords that follow it, keeping its chord tones on each chord's tones and its passing and neighbour notes as decorations, in the Key Snap key. |
 
 For the string section, pick one of the first two. The legato script is a superset of the orchestrator, so running both
 on the same material would apply the distribution twice.

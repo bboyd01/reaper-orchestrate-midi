@@ -213,6 +213,139 @@ do
 end
 
 --=============================================================================
+print("-- chord tones and non-chord tones")
+--=============================================================================
+
+local function kinds(pattern)
+  local out = {}
+  for i = 1, #pattern.notes do out[i] = pattern.notes[i].kind end
+  return out
+end
+
+-- How many of `pitches` fall outside the chord `chordPitches` implies.
+local function outside(scale, pitches, chordPitches)
+  local tones = M.chordTonePcs(scale, M.analyzeChord(scale, chordPitches))
+  local count = 0
+  for i = 1, #pitches do
+    if not tones[pitches[i] % 12] then count = count + 1 end
+  end
+  return count
+end
+
+do
+  -- A passing tone that is the figure's lowest note does not become its root.
+  local pattern = M.analyzePattern(D_MAJOR, figure("B4 A#4 B4 D5 F#5", 0.25))
+  check("passing lowest note is not the root", pattern.chord.rootPc, 11)
+end
+
+do
+  -- Two bars of 8ths over C with passing and neighbour notes.
+  local pattern = M.analyzePattern(C_MAJOR, figure(
+    "C4 D4 E4 G4  A4 G4 E4 D4  C4 E4 F4 G4  C5 B4 G4 E4", 0.5))
+  check("figure read as C", pattern.chord.rootPc, 0)
+  check("chord and non-chord tones", kinds(pattern), {
+    "ct", "passing", "ct", "ct",  "neighbour", "ct", "ct", "passing",
+    "ct", "ct", "passing", "ct",  "ct", "other", "ct", "ct" })
+  check("non-chord share", pattern.nctShare, 5 / 16)
+
+  -- Within its budget, the figure keeps its decorations: passing notes still
+  -- pass, the neighbour still neighbours.
+  local r = M.realize(C_MAJOR, pattern, ps("F3 A3 C4"))
+  -- (Inverted onto C: the falling third E-D-C became the falling fourth
+  -- F-?-C, and the passing note keeps its step from the F.)
+  check("over F: decorations kept", r, ps(
+    "C4 D4 F4 A4  B4 A4 F4 E4  C4 F4 G4 A4  C5 B4 A4 F4"))
+  check("over F: at most the figure's share outside", outside(C_MAJOR, r,
+        ps("F3 A3 C4")) <= 5, true)
+
+  -- A chord that plays an extension absorbs the decorations that land on it.
+  r = M.realize(C_MAJOR, pattern, ps("D3 A3 C4 F4"))
+  check("over Dm7: the passing C is the chord's own 7th",
+        outside(C_MAJOR, r, ps("D3 A3 C4 F4")), 4)
+
+  r = M.realize(C_MAJOR, pattern, ps("F3 A3 C4"), { maxNctShare = 0 })
+  check("budget 0: every note a chord tone",
+        outside(C_MAJOR, r, ps("F3 A3 C4")), 0)
+  local repeats = 0
+  for i = 2, #r do if r[i] == r[i - 1] then repeats = repeats + 1 end end
+  check("budget 0: decorations do not become repeated notes", repeats, 0)
+end
+
+do
+  -- A scale run is half non-chord tones: within the default budget.
+  local pattern = M.analyzePattern(C_MAJOR, figure("C4 D4 E4 F4 G4 A4 B4 C5", 0.5))
+  check("scale run share", pattern.nctShare, 0.5)
+  local function climbs(r)
+    for i = 2, #r do if r[i] <= r[i - 1] then return false end end
+    return true
+  end
+  local function repeatsIn(r)
+    local n = 0
+    for i = 2, #r do if r[i] == r[i - 1] then n = n + 1 end end
+    return n
+  end
+  local r = M.realize(C_MAJOR, pattern, ps("G3 B3 D4"),
+                      { allowInversions = false })
+  check("scale run over G: still a scale run", r, ps("G3 A3 B3 C4 D4 E4 F4 G4"))
+
+  -- A tighter budget is kept, without repeated notes.
+  r = M.realize(C_MAJOR, pattern, ps("G3 B3 D4"),
+                { allowInversions = false, maxNctShare = 0.35 })
+  check("budget 35%: at most 35% outside",
+        outside(C_MAJOR, r, ps("G3 B3 D4")) <= 2, true)
+  check("budget 35%: no repeated notes", repeatsIn(r), 0)
+
+  -- Inverted, the chord's gaps no longer fit a note per step; a passing note
+  -- with no room left becomes a chord tone, never a repeated note.
+  r = M.realize(C_MAJOR, pattern, ps("G3 B3 D4"))
+  check("inverted scale run: no repeated notes", repeatsIn(r), 0)
+  check("inverted scale run: at most half outside",
+        outside(C_MAJOR, r, ps("G3 B3 D4")) <= 4, true)
+end
+
+do
+  -- A 7th the figure arpeggiates is a chord tone: over a triad it moves to
+  -- one of the triad's tones rather than sounding as a dissonance.
+  local pattern = M.analyzePattern(C_MAJOR, figure("C4 E4 G4 B4", 0.25))
+  check("arpeggiated 7th is a chord tone", kinds(pattern), { "ct", "ct", "ct", "ct" })
+  check("pure chord-tone figure has no budget", pattern.nctShare, 0)
+  local r = M.realize(C_MAJOR, pattern, ps("D4 F4 A4"))
+  check("maj7 figure over Dm: all chord tones",
+        outside(C_MAJOR, r, ps("D4 F4 A4")), 0)
+  check("maj7 figure over Dm: still climbs", r[4] > r[3], true)
+
+  -- ... and over a 7th chord it takes that chord's own 7th.
+  r = M.realize(C_MAJOR, pattern, ps("D4 F4 A4 C5"))
+  check("maj7 figure over Dm7", r, ps("D4 F4 A4 C5"))
+end
+
+do
+  local chord = M.analyzeChord(C_MAJOR, ps("A3 E4"))
+  local tones = M.chordTonePcs(C_MAJOR, chord)
+  check("power chord implies the key's third",
+        { tones[9], tones[0], tones[4], tones[2] }, { true, true, true, nil })
+end
+
+--=============================================================================
+print("-- which notes are chords")
+--=============================================================================
+
+do
+  local notes = {
+    note(4, 0.5, p("E5"), 1), note(4.5, 0.5, p("D5"), 2),   -- leftover 8ths
+    note(5, 0.25, p("C5"), 3),                              -- a 16th
+    note(8, 4, p("A4"), 4), note(8, 4, p("C#5"), 5),        -- whole notes
+    note(12, 1, p("D4"), 6), note(13, 2, p("G4"), 7),       -- quarter, half
+    note(15, 0.9, p("A4"), 8),                              -- short quarter
+  }
+  local got = M.blockChordNotes(notes, 4 * PPQ, math.huge, 0.75 * PPQ - TOL, TOL)
+  local orders = {}
+  for i = 1, #got do orders[i] = got[i].order end
+  check("8ths and 16ths are ignored, quarters and longer are chords",
+        orders, { 4, 5, 6, 7, 8 })
+end
+
+--=============================================================================
 print("-- timing")
 --=============================================================================
 
